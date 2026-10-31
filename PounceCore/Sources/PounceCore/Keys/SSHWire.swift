@@ -21,6 +21,11 @@ struct SSHReader {
         return Array(bytes[offset..<offset + count])
     }
 
+    mutating func readUInt64() throws(KeyError) -> UInt64 {
+        let raw = try readBytes(8)
+        return raw.reduce(0) { ($0 << 8) | UInt64($1) }
+    }
+
     mutating func readString() throws(KeyError) -> [UInt8] {
         try readBytes(Int(readUInt32()))
     }
@@ -45,6 +50,12 @@ struct SSHWriter {
     mutating func writeUInt32(_ value: UInt32) {
         bytes += value.bigEndianBytes
     }
+
+    mutating func writeUInt64(_ value: UInt64) {
+        bytes += value.bigEndianBytes
+    }
+
+    mutating func writeString(_ value: Data) { writeString([UInt8](value)) }
 
     mutating func writeString(_ value: [UInt8]) {
         writeUInt32(UInt32(value.count))

@@ -15,11 +15,14 @@ public struct Host: Codable, Hashable, Identifiable, Sendable {
     public var startupSnippetID: UUID?
     public var themeID: String?
     public var icon: String?
+    /// opt-in: the saved password goes to the sync account, end-to-end encrypted.
+    public var syncsPassword: Bool
 
     public init(
         id: UUID = UUID(), label: String = "", hostname: String, port: Int = 22, username: String,
         identityID: UUID? = nil, jumpHostIDs: [UUID] = [], tags: [String] = [], isFavorite: Bool = false,
-        lastConnected: Date? = nil, startupSnippetID: UUID? = nil, themeID: String? = nil, icon: String? = nil
+        lastConnected: Date? = nil, startupSnippetID: UUID? = nil, themeID: String? = nil, icon: String? = nil,
+        syncsPassword: Bool = false
     ) {
         self.id = id
         self.label = label
@@ -34,6 +37,7 @@ public struct Host: Codable, Hashable, Identifiable, Sendable {
         self.startupSnippetID = startupSnippetID
         self.themeID = themeID
         self.icon = icon
+        self.syncsPassword = syncsPassword
     }
 
     public var displayName: String { label.isEmpty ? address : label }
@@ -58,6 +62,7 @@ public struct Host: Codable, Hashable, Identifiable, Sendable {
         startupSnippetID = try c.decodeIfPresent(UUID.self, forKey: .startupSnippetID)
         themeID = try c.decodeIfPresent(String.self, forKey: .themeID)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        syncsPassword = try c.decodeIfPresent(Bool.self, forKey: .syncsPassword) ?? false
     }
 }
 
@@ -71,10 +76,14 @@ public struct Identity: Codable, Hashable, Identifiable, Sendable {
     public var created: Date
     public var requiresBiometry: Bool
     public var icon: String?
+    /// opt-in: the private key goes to the sync account, end-to-end encrypted.
+    public var syncsKey: Bool
+    /// set when a device that held the synced private key was removed.
+    public var exposedAt: Date?
 
     public init(
         id: UUID = UUID(), name: String, kind: KeyKind, publicKey: String, created: Date = .now,
-        requiresBiometry: Bool = false, icon: String? = nil
+        requiresBiometry: Bool = false, icon: String? = nil, syncsKey: Bool = false, exposedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -83,6 +92,21 @@ public struct Identity: Codable, Hashable, Identifiable, Sendable {
         self.created = created
         self.requiresBiometry = requiresBiometry
         self.icon = icon
+        self.syncsKey = syncsKey
+        self.exposedAt = exposedAt
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        kind = try c.decode(KeyKind.self, forKey: .kind)
+        publicKey = try c.decode(String.self, forKey: .publicKey)
+        created = try c.decode(Date.self, forKey: .created)
+        requiresBiometry = try c.decodeIfPresent(Bool.self, forKey: .requiresBiometry) ?? false
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        syncsKey = try c.decodeIfPresent(Bool.self, forKey: .syncsKey) ?? false
+        exposedAt = try c.decodeIfPresent(Date.self, forKey: .exposedAt)
     }
 }
 
@@ -162,18 +186,33 @@ public struct Snippet: Codable, Hashable, Identifiable, Sendable {
 }
 
 /// keyed by host and port like openssh's `known_hosts`.
-public struct KnownHost: Codable, Hashable, Sendable {
+public struct KnownHost: Codable, Hashable, Identifiable, Sendable {
+    /// files from before sync get one on first load.
+    public var id: UUID
     public var host: String
     public var port: Int
     public var algorithm: String
     public var key: Data
     public var added: Date
 
-    public init(host: String, port: Int, algorithm: String, key: Data, added: Date = .now) {
+    public init(id: UUID = UUID(), host: String, port: Int, algorithm: String, key: Data, added: Date = .now) {
+        self.id = id
         self.host = host
         self.port = port
         self.algorithm = algorithm
         self.key = key
         self.added = added
+    }
+}
+
+extension KnownHost {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        host = try c.decode(String.self, forKey: .host)
+        port = try c.decode(Int.self, forKey: .port)
+        algorithm = try c.decode(String.self, forKey: .algorithm)
+        key = try c.decode(Data.self, forKey: .key)
+        added = try c.decode(Date.self, forKey: .added)
     }
 }
