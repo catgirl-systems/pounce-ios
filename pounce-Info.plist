@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>pounce keeps your SSH sessions and tunnels connected in the background by staying active with coarse location updates. Your location is never stored or sent anywhere.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>pounce connects to SSH hosts on your local network.</string>
+</dict>
+</plist>

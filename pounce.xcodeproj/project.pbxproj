@@ -1,0 +1,445 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		CC0000000000000000000001 /* PounceCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000002 /* PounceCore */; };
+		CC0000000000000000000003 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000004 /* SwiftTerm */; };
+		CC0000000000000000000030 /* pounceWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000031 /* pounceWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CC0000000000000000000032 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CC0000000000000000000006 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CC0000000000000000000034;
+			remoteInfo = pounceWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CC0000000000000000000033 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				CC0000000000000000000030 /* pounceWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		CC0000000000000000000009 /* pounce.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = pounce.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC000000000000000000000A /* pounce-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "pounce-Info.plist"; sourceTree = "<group>"; };
+		CC000000000000000000000C /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
+		CC0000000000000000000031 /* pounceWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = pounceWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC000000000000000000003A /* pounceWidgets-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "pounceWidgets-Info.plist"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		CC000000000000000000000D /* pounce */ = {isa = PBXFileSystemSynchronizedRootGroup; path = pounce; sourceTree = "<group>"; };
+		CC0000000000000000000035 /* pounceWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; path = pounceWidgets; sourceTree = "<group>"; };
+		CC0000000000000000000036 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Shared; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		CC0000000000000000000010 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC0000000000000000000001 /* PounceCore in Frameworks */,
+				CC0000000000000000000003 /* SwiftTerm in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC0000000000000000000038 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		CC0000000000000000000012 = {
+			isa = PBXGroup;
+			children = (
+				CC000000000000000000000C /* CLAUDE.md */,
+				CC000000000000000000000A /* pounce-Info.plist */,
+				CC000000000000000000000D /* pounce */,
+				CC0000000000000000000036 /* Shared */,
+				CC000000000000000000003A /* pounceWidgets-Info.plist */,
+				CC0000000000000000000035 /* pounceWidgets */,
+				CC0000000000000000000013 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CC0000000000000000000013 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				CC0000000000000000000009 /* pounce.app */,
+				CC0000000000000000000031 /* pounceWidgets.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		CC0000000000000000000014 /* pounce */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC0000000000000000000015 /* Build configuration list for PBXNativeTarget "pounce" */;
+			buildPhases = (
+				CC0000000000000000000016 /* Sources */,
+				CC0000000000000000000010 /* Frameworks */,
+				CC0000000000000000000017 /* Resources */,
+				CC0000000000000000000033 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CC000000000000000000003E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				CC000000000000000000000D /* pounce */,
+				CC0000000000000000000036 /* Shared */,
+			);
+			name = pounce;
+			packageProductDependencies = (
+				CC0000000000000000000002 /* PounceCore */,
+				CC0000000000000000000004 /* SwiftTerm */,
+			);
+			productName = pounce;
+			productReference = CC0000000000000000000009 /* pounce.app */;
+			productType = "com.apple.product-type.application";
+		};
+		CC0000000000000000000034 /* pounceWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC000000000000000000003B /* Build configuration list for PBXNativeTarget "pounceWidgets" */;
+			buildPhases = (
+				CC0000000000000000000037 /* Sources */,
+				CC0000000000000000000038 /* Frameworks */,
+				CC0000000000000000000039 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CC0000000000000000000035 /* pounceWidgets */,
+				CC0000000000000000000036 /* Shared */,
+			);
+			name = pounceWidgets;
+			productName = pounceWidgets;
+			productReference = CC0000000000000000000031 /* pounceWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		CC0000000000000000000006 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+			};
+			buildConfigurationList = CC000000000000000000001C /* Build configuration list for PBXProject "pounce" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = CC0000000000000000000012;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CC000000000000000000001D /* XCLocalSwiftPackageReference "PounceCore" */,
+				CC0000000000000000000005 /* XCLocalSwiftPackageReference "Vendor/SwiftTerm" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = CC0000000000000000000013 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				CC0000000000000000000014 /* pounce */,
+				CC0000000000000000000034 /* pounceWidgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		CC0000000000000000000017 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC0000000000000000000039 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CC0000000000000000000016 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC0000000000000000000037 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CC000000000000000000003E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CC0000000000000000000034 /* pounceWidgets */;
+			targetProxy = CC0000000000000000000032 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		CC000000000000000000001E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZAHV76GFTN;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "pounce-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = pounce;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_NSCameraUsageDescription = "pounce scans QR codes to import SSH keys.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "pounce uses Face ID to unlock your keys and passwords.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = catgirl.engineering.pounce;
+			};
+			name = Debug;
+		};
+		CC000000000000000000001F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZAHV76GFTN;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "pounce-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = pounce;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_NSCameraUsageDescription = "pounce scans QR codes to import SSH keys.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "pounce uses Face ID to unlock your keys and passwords.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = catgirl.engineering.pounce;
+			};
+			name = Release;
+		};
+		CC0000000000000000000022 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		CC0000000000000000000023 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				DEAD_CODE_STRIPPING = YES;
+				DEPLOYMENT_POSTPROCESSING = YES;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = all;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		CC000000000000000000003C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZAHV76GFTN;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "pounceWidgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = pounce;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = catgirl.engineering.pounce.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "WIDGET_EXTENSION $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CC000000000000000000003D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZAHV76GFTN;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "pounceWidgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = pounce;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = catgirl.engineering.pounce.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "WIDGET_EXTENSION $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CC0000000000000000000015 /* Build configuration list for PBXNativeTarget "pounce" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC000000000000000000001E /* Debug */,
+				CC000000000000000000001F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC000000000000000000001C /* Build configuration list for PBXProject "pounce" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC0000000000000000000022 /* Debug */,
+				CC0000000000000000000023 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC000000000000000000003B /* Build configuration list for PBXNativeTarget "pounceWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC000000000000000000003C /* Debug */,
+				CC000000000000000000003D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		CC000000000000000000001D /* XCLocalSwiftPackageReference "PounceCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PounceCore;
+		};
+		CC0000000000000000000005 /* XCLocalSwiftPackageReference "Vendor/SwiftTerm" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/SwiftTerm;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CC0000000000000000000002 /* PounceCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PounceCore;
+		};
+		CC0000000000000000000004 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = CC0000000000000000000006 /* Project object */;
+}
