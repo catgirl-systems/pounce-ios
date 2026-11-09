@@ -53,13 +53,18 @@ struct HostEditor: View {
                         SecureField("Password", text: $password, prompt: Text("Asked when needed"))
                             .textContentType(.password)
                     }
+                    if app.sync.isOn, (hasPassword && !removePassword) || !password.isEmpty {
+                        Toggle("Sync Password", isOn: $host.syncsPassword)
+                    }
                 } header: {
                     Text("Sign In")
                 } footer: {
                     Text(
-                        host.identityID == nil
+                        (host.identityID == nil
                             ? "Keys that don't need \(Biometry.current.name) are tried in turn, then the password."
                             : "The key is tried first, then the password.")
+                            + (app.sync.isOn
+                                ? " A synced password is end-to-end encrypted and sent to your other devices." : ""))
                 }
 
                 Section {
@@ -163,16 +168,23 @@ struct HostEditor: View {
         addTag()
         host.hostname = host.hostname.trimmingCharacters(in: .whitespaces)
         host.username = host.username.trimmingCharacters(in: .whitespaces)
-        if removePassword { Keychain.deletePassword(for: host.id) }
+        let wasSyncing = app.host(host.id)?.syncsPassword ?? false
+        if removePassword {
+            Keychain.deletePassword(for: host.id)
+            host.syncsPassword = false
+        }
+        if !hasPassword && password.isEmpty { host.syncsPassword = false }
+        app.save(host)
         if !password.isEmpty {
             do {
-                try Keychain.savePassword(password, for: host.id)
+                try app.savePassword(password, for: host.id)
             } catch {
                 app.fail(error.localizedDescription)
                 return
             }
+        } else if host.syncsPassword, !wasSyncing, let existing = Keychain.password(for: host.id) {
+            app.uploadPassword(existing, for: host.id)
         }
-        app.save(host)
         dismiss()
     }
 }

@@ -129,7 +129,8 @@ private struct QRHelpView: View {
     }
 }
 
-private struct Scanner: UIViewControllerRepresentable {
+/// reports every qr payload it sees; callers dedupe.
+struct Scanner: UIViewControllerRepresentable {
     let onPayload: (String) -> Void
 
     func makeUIViewController(context: Context) -> DataScannerViewController {

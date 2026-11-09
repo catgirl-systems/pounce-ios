@@ -11,13 +11,18 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
     static let shared = AppModel()
 
     private(set) var data: AppData {
-        didSet { if data != oldValue { store.save(data) } }
+        didSet {
+            guard data != oldValue else { return }
+            store.save(data)
+            sync.localChanged()
+        }
     }
     var notice: Notice?
 
     let sessions = SessionManager()
     let tunnels = TunnelManager()
     let prompts = PromptCenter()
+    let sync = SyncController()
     @ObservationIgnored let liveActivity = LiveActivityController()
     @ObservationIgnored let keeper = BackgroundKeeper()
 
@@ -25,8 +30,11 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
 
     private init() {
         data = store.load()
+        // known hosts from before sync get their ids on load; keep them stable.
+        store.save(data)
         liveActivity.watch()
         keeper.watch()
+        sync.start()
     }
 
     var hosts: [Host] { data.hosts }
@@ -136,6 +144,79 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
 
     func rename(_ identity: Identity, to name: String) { data.identities[id: identity.id]?.name = name }
 
+    /// turning it on uploads the private key first, behind face id if the key needs it.
+    func setSyncsKey(_ on: Bool, for identity: Identity) async {
+        guard on else {
+            data.identities[id: identity.id]?.syncsKey = false
+            return
+        }
+        do {
+            let reason = "Sync “\(identity.name)” to your other devices"
+            let material = try await Task.detached { try Keychain.key(for: identity.id, reason: reason) }.value
+            guard let material else {
+                fail("The private key isn't on this iPhone")
+                return
+            }
+            try await sync.uploadKey(material, identity: identity.id)
+            data.identities[id: identity.id]?.syncsKey = true
+        } catch Keychain.Failure.cancelled {
+        } catch {
+            fail("Couldn't sync the key", subtitle: error.localizedDescription)
+        }
+    }
+
+    /// a new key to install in place of one a removed device had. hosts move to
+    /// it; the old key stays until it's deleted, since it's needed to install this one.
+    func replaceKey(_ identity: Identity) throws -> Identity {
+        let material = PrivateKeyMaterial.generateEd25519(comment: identity.name)
+        let replacement = try addIdentity(
+            material, name: "\(identity.name) (new)", requireBiometry: identity.requiresBiometry)
+        var data = data
+        for index in data.hosts.indices where data.hosts[index].identityID == identity.id {
+            data.hosts[index].identityID = replacement.id
+        }
+        self.data = data
+        return replacement
+    }
+
+    /// marks every key synced to the account: a removed device may have kept them.
+    func markSyncedSecretsExposed() {
+        var data = data
+        for index in data.identities.indices where data.identities[index].syncsKey {
+            data.identities[index].exposedAt = .now
+        }
+        self.data = data
+    }
+
+    var exposedIdentities: [Identity] { data.identities.filter { $0.exposedAt != nil } }
+    var hostsWithSyncedPasswords: [Host] { data.hosts.filter(\.syncsPassword) }
+
+    /// saves to the keychain, and to the sync account when the host syncs it.
+    func savePassword(_ password: String, for hostID: UUID) throws {
+        try Keychain.savePassword(password, for: hostID)
+        if host(hostID)?.syncsPassword == true { uploadPassword(password, for: hostID) }
+    }
+
+    /// on failure the host stops syncing its password, so the switch tells the truth.
+    func uploadPassword(_ password: String, for hostID: UUID) {
+        Task {
+            do {
+                try await sync.uploadPassword(password, host: hostID)
+            } catch {
+                data.hosts[id: hostID]?.syncsPassword = false
+                fail("Couldn't sync the password", subtitle: error.localizedDescription)
+            }
+        }
+    }
+
+    /// remote changes from the sync engine; returns the ids it had to skip.
+    func applySync(_ body: @Sendable (inout AppData) -> Set<Data>) -> Set<Data> {
+        var data = data
+        let skipped = body(&data)
+        self.data = data
+        return skipped
+    }
+
     func setIcon(_ identity: Identity, to icon: String?) { data.identities[id: identity.id]?.icon = icon }
 
     func delete(_ identity: Identity) {
@@ -188,6 +269,8 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
 
     func eraseAll() {
         disconnectAll()
+        // first, so no sync round sees the empty data; other devices keep theirs.
+        sync.turnOff()
         Keychain.deleteAll()
         data = AppData()
     }
@@ -272,7 +355,7 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         guard case .password(let password, let save) = await prompts.ask(.password(endpoint: endpoint, canSave: saved))
         else { return nil }
         if save, saved {
-            do { try Keychain.savePassword(password, for: hostID) } catch { log.error("couldn't save password") }
+            do { try savePassword(password, for: hostID) } catch { log.error("couldn't save password") }
         }
         return password
     }

@@ -85,6 +85,8 @@ struct IdentityDetail: View {
     @State private var showQR = false
     @State private var confirmDelete = false
     @State private var copied = 0
+    @State private var hasKey = true
+    @State private var syncing = false
 
     init(identity: Identity) {
         self.identity = identity
@@ -99,7 +101,18 @@ struct IdentityDetail: View {
 
     var body: some View {
         let publicKey = try? SSHPublicKey(authorizedKeysLine: identity.publicKey)
+        let current = app.identity(identity.id) ?? identity
         Form {
+            if current.exposedAt != nil {
+                Section {
+                    Label(
+                        "A device you removed from sync had this private key. Make a new key, install it on your servers, then delete this one.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                    Button("Make Replacement Key", systemImage: "arrow.triangle.2.circlepath") { replace(current) }
+                }
+            }
             Section {
                 TextField("Name", text: $name)
                     .onSubmit { app.rename(identity, to: name) }
@@ -110,6 +123,22 @@ struct IdentityDetail: View {
                 LabeledContent("Added", value: identity.created.formatted(date: .abbreviated, time: .omitted))
                 if identity.requiresBiometry {
                     Label("\(Biometry.current.name) required to use", systemImage: Biometry.current.symbol)
+                }
+                if !hasKey {
+                    Label("The private key isn't on this iPhone", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if app.sync.isOn {
+                Section {
+                    Toggle("Sync Private Key", isOn: syncBinding(current))
+                        .disabled(syncing || identity.kind == .secureEnclaveP256 || !hasKey)
+                } footer: {
+                    Text(
+                        identity.kind == .secureEnclaveP256
+                            ? "Keys made in the Secure Enclave can't leave this iPhone."
+                            : "Off by default. When on, the private key is end-to-end encrypted and sent to your other devices."
+                    )
                 }
             }
             if let publicKey {
@@ -145,7 +174,9 @@ struct IdentityDetail: View {
                 Text("Public Key")
             } footer: {
                 Text(
-                    "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key. The private key never leaves this iPhone."
+                    current.syncsKey
+                        ? "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key."
+                        : "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key. The private key never leaves this iPhone."
                 )
             }
             Section {
@@ -170,6 +201,30 @@ struct IdentityDetail: View {
                     : "Hosts using it will need another key or a password.")
         }
         .onDisappear { if name != identity.name, !name.isEmpty { app.rename(identity, to: name) } }
+        .task { hasKey = Keychain.hasKey(for: identity.id) }
+    }
+
+    private func syncBinding(_ current: Identity) -> Binding<Bool> {
+        Binding(
+            get: { current.syncsKey },
+            set: { on in
+                syncing = true
+                Task {
+                    await app.setSyncsKey(on, for: current)
+                    syncing = false
+                }
+            })
+    }
+
+    private func replace(_ current: Identity) {
+        do {
+            let replacement = try app.replaceKey(current)
+            app.copy(
+                replacement.publicKey, notice: "New key made, public key copied",
+                subtitle: "Install it with the old key, then delete the old one")
+        } catch {
+            app.fail("Couldn't make a key", subtitle: error.localizedDescription)
+        }
     }
 }
 

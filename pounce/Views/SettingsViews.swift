@@ -47,6 +47,17 @@ struct SettingsView: View {
                 )
             }
             Section {
+                NavigationLink {
+                    SyncView()
+                } label: {
+                    LabeledContent(
+                        "Sync",
+                        value: app.sync.isOn ? app.sync.server.replacingOccurrences(of: "https://", with: "") : "Off")
+                }
+            } footer: {
+                Text("End-to-end encrypted, through a pounce-sync server you choose.")
+            }
+            Section {
                 Toggle("Stay Connected in Background", isOn: $keepAlive)
                     .onChange(of: keepAlive) { app.keeper.settingChanged() }
             } footer: {
@@ -83,7 +94,7 @@ struct SettingsView: View {
                 Text("Security")
             } footer: {
                 Text(
-                    "Keys and passwords stay in this iPhone's Keychain. They're never synced or included in backups. When a session asks for a password the host has saved, pounce offers to fill it in."
+                    "Keys and passwords stay in this iPhone's Keychain and aren't included in backups. They sync only if you turn that on for a key or host. When a session asks for a password the host has saved, pounce offers to fill it in."
                 )
             }
             Section {
