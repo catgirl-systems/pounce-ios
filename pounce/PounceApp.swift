@@ -101,8 +101,14 @@ struct PounceApp: App {
         }
         window.layer.removeAllAnimations()
         window.alpha = 1
-        // while locked it also takes the keyboard away from the terminal.
-        if lock.isLocked { window.makeKeyAndVisible() } else { window.isHidden = false }
+        guard lock.isLocked else {
+            window.isHidden = false
+            return
+        }
+        // the keyboard's window sits above this one, so whatever is being typed
+        // into has to let go of it.
+        for other in window.windowScene?.windows ?? [] where other !== window { other.endEditing(true) }
+        window.makeKeyAndVisible()
     }
 
     private func hide() {

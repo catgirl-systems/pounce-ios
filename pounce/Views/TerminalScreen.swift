@@ -4,6 +4,7 @@ import SwiftUI
 
 struct TerminalScreen: View {
     @Environment(SessionManager.self) private var sessions
+    @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selected: Session.ID
@@ -23,11 +24,14 @@ struct TerminalScreen: View {
         ZStack {
             if let session {
                 session.theme.color(session.theme.background).ignoresSafeArea()
-                TerminalHost(session: session, fontSize: fontSize, showSnippets: $showSnippets)
-                    .id(session.id)
-                    .padding(.horizontal, 4)
-                    .opacity(session.state == .connected || session.hasOutput ? 1 : 0)
-                    .safeAreaInset(edge: .top, spacing: 0) { topBar(session) }
+                TerminalHost(
+                    session: session, fontSize: fontSize, locked: app.lock.isLocked || session.state == .connecting,
+                    showSnippets: $showSnippets
+                )
+                .id(session.id)
+                .padding(.horizontal, 4)
+                .opacity(session.state == .connected || session.hasOutput ? 1 : 0)
+                .safeAreaInset(edge: .top, spacing: 0) { topBar(session) }
                 StateOverlay(session: session)
                 if session.asksForPassword {
                     PasswordChip(session: session)
@@ -321,6 +325,9 @@ extension View {
 private struct TerminalHost: UIViewRepresentable {
     let session: Session
     let fontSize: Double
+    /// no keyboard under the app lock's cover or while connecting, when a
+    /// face id prompt for the key may be up: it would sit above both.
+    let locked: Bool
     @Binding var showSnippets: Bool
 
     func makeUIView(context: Context) -> UIView {
@@ -336,7 +343,8 @@ private struct TerminalHost: UIViewRepresentable {
             target: context.coordinator, action: #selector(Coordinator.pinched(_:)))
         view.addGestureRecognizer(pinch)
         context.coordinator.pinch = pinch
-        Task { _ = view.becomeFirstResponder() }
+        context.coordinator.locked = locked
+        if !locked { Task { _ = view.becomeFirstResponder() } }
         return container
     }
 
@@ -344,6 +352,13 @@ private struct TerminalHost: UIViewRepresentable {
         context.coordinator.session = session
         let view = session.terminal.view
         if view.font.pointSize != fontSize { session.terminal.setFontSize(fontSize) }
+        if locked {
+            if view.isFirstResponder { _ = view.resignFirstResponder() }
+        } else if context.coordinator.locked {
+            // just unlocked: the keyboard comes back.
+            Task { _ = view.becomeFirstResponder() }
+        }
+        context.coordinator.locked = locked
     }
 
     static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
@@ -355,6 +370,7 @@ private struct TerminalHost: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject {
         var session: Session
         weak var pinch: UIPinchGestureRecognizer?
+        var locked = false
         private var startSize = TerminalFont.defaultSize
 
         init(session: Session) { self.session = session }

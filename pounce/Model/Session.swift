@@ -165,6 +165,8 @@ import UIKit
     }
 
     func send(_ bytes: [UInt8]) {
+        // nothing reaches a shell from behind the lock, keyboard or not.
+        guard !AppModel.shared.lock.isLocked else { return }
         if asksForPassword { withAnimation(.snappy) { asksForPassword = false } }
         shell?.write(bytes)
     }
