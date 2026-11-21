@@ -80,10 +80,12 @@ public enum Keychain {
         delete(account: account)
         var query = base(account)
         query[kSecValueData as String] = data
-        if requireBiometry,
-            let access = SecAccessControlCreateWithFlags(
-                nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .biometryCurrentSet, nil)
-        {
+        if requireBiometry {
+            // never falls back to an ungated item when the gate can't be made.
+            guard
+                let access = SecAccessControlCreateWithFlags(
+                    nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .biometryCurrentSet, nil)
+            else { throw .unavailable(errSecParam) }
             query[kSecAttrAccessControl as String] = access
         } else {
             query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly

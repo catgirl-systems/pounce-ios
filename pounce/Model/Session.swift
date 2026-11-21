@@ -33,8 +33,12 @@ import UIKit
     private(set) var asksForPassword = false
     private(set) var hasSavedPassword = false
     private(set) var isFilling = false
+    /// bumped when a password was actually typed in, for the haptic.
+    private(set) var fills = 0
     /// waits here until its placeholders are filled in.
     var pendingStartup: Snippet?
+    /// sent on connect in place of the host's own startup snippet.
+    var startupOverride: Snippet?
     var theme: TerminalTheme {
         didSet {
             theme.apply(to: terminal.view)
@@ -75,7 +79,15 @@ import UIKit
     }
 
     private func run() async {
+        // this run's own connection: `self.connection` may be a later run's by
+        // the time this one fails.
+        var opened: SSHConnection?
         do {
+            // a shortcut or spotlight can open a session behind the lock screen.
+            guard await AppModel.shared.lock.unlock() else {
+                state = .failed("pounce stayed locked.")
+                return
+            }
             let connection = try await AppModel.shared.connect(host) { [weak self] hop, stage in
                 Task { @MainActor in self?.advance(hop: hop, to: stage) }
             }
@@ -84,6 +96,7 @@ import UIKit
                 return
             }
             self.connection = connection
+            opened = connection
             let size = terminal.size
             let shell = try await connection.openShell(
                 columns: size.cols, rows: size.rows, environment: ["LANG": "en_US.UTF-8"])
@@ -95,7 +108,7 @@ import UIKit
             let hostID = host.id
             hasSavedPassword = await Task.detached { Keychain.hasPassword(for: hostID) }.value
             withAnimation(.snappy) { state = .connected }
-            if !sentStartup, let snippet = AppModel.shared.snippet(host.startupSnippetID) {
+            if !sentStartup, let snippet = startupOverride ?? AppModel.shared.snippet(host.startupSnippetID) {
                 sentStartup = true
                 if snippet.placeholders.isEmpty { run(snippet, values: [:]) } else { pendingStartup = snippet }
             }
@@ -106,16 +119,19 @@ import UIKit
             }
             // output ends when the shell exits (we have its status) or the connection
             // goes away.
-            if let status = shell.exitStatus {
-                state = .exited(status)
+            // a shell killed by a signal has no status, but the connection is still up.
+            if shell.exitStatus != nil || connection.isActive {
+                state = .exited(shell.exitStatus)
                 connection.close()
-                endedWithoutCard(error: nil, status: status)
+                endedWithoutCard(error: nil, status: shell.exitStatus)
             } else if !Task.isCancelled {
                 dropped = true
                 state = .failed("The connection was lost.")
                 endedWithoutCard(error: "Connection lost")
             }
         } catch {
+            // the shell didn't open; don't leave the signed-in connection behind.
+            opened?.close()
             guard !Task.isCancelled else { return }
             log.error("session failed: \(error.localizedDescription, privacy: .public)")
             state = .failed(error.localizedDescription)
@@ -176,6 +192,7 @@ import UIKit
             return
         }
         send(Array((password + "\r").utf8))
+        fills += 1
     }
 
     func run(_ snippet: Snippet, values: [String: String]) {
@@ -186,7 +203,10 @@ import UIKit
 
     func ring() { bells += 1 }
 
-    func setTitle(_ title: String) { self.title = title }
+    func setTitle(_ title: String) {
+        // shells set the same title on every prompt.
+        if title != self.title { self.title = title }
+    }
 
     /// keeps what's on screen.
     func reconnect() {
@@ -309,7 +329,7 @@ extension TerminalView {
     var currentSession: Session? { sessions[id: current] ?? sessions.first }
 
     @discardableResult
-    func open(_ host: Host) -> Session {
+    func open(_ host: Host, startup: Snippet? = nil) -> Session {
         let app = AppModel.shared
         let chain = (try? app.jumpChain(for: host)) ?? [host]
         let defaults = UserDefaults.standard
@@ -318,6 +338,7 @@ extension TerminalView {
         let session = Session(
             host: host, hops: chain.map(\.displayName), theme: theme,
             fontSize: size > 0 ? size : TerminalFont.defaultSize)
+        session.startupOverride = startup
         sessions.append(session)
         session.start()
         present(session)
@@ -375,9 +396,11 @@ extension TerminalView {
     /// center doesn't count.
     func didBecomeActive() {
         endBackgroundTask()
+        // also after a shortcut started something in the background, which
+        // couldn't start the activity from there.
+        AppModel.shared.liveActivity.becameActive()
         guard wasInBackground else { return }
         wasInBackground = false
-        AppModel.shared.liveActivity.becameActive()
         for session in sessions where session.dropped { session.reconnect() }
         AppModel.shared.tunnels.restartDropped()
     }

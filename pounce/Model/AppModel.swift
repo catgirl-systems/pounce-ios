@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import PounceCore
 import SwiftUI
+import Synchronization
 import os
 
 let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
@@ -15,16 +16,23 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
             guard data != oldValue else { return }
             store.save(data)
             sync.localChanged()
+            if data.hosts != oldValue.hosts { spotlight.update() }
         }
     }
     var notice: Notice?
+    /// the notice banners on screen, bottom to top; the last one shows it.
+    var noticeOwners: [UUID] = []
+    /// set by the focus filter; the host list shows only what it allows.
+    var focus = HostFocus()
 
     let sessions = SessionManager()
     let tunnels = TunnelManager()
     let prompts = PromptCenter()
     let sync = SyncController()
+    let lock = AppLock()
     @ObservationIgnored let liveActivity = LiveActivityController()
     @ObservationIgnored let keeper = BackgroundKeeper()
+    @ObservationIgnored let spotlight = SpotlightIndex()
 
     @ObservationIgnored private let store = Store()
 
@@ -35,6 +43,12 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         liveActivity.watch()
         keeper.watch()
         sync.start()
+        spotlight.update()
+        Task {
+            // the focus may have changed while pounce wasn't running.
+            guard let filter = try? await HostFocusFilter.current else { return }
+            focus = HostFocus(tags: filter.tags ?? [], keepFavorites: filter.keepFavorites)
+        }
     }
 
     var hosts: [Host] { data.hosts }
@@ -154,11 +168,17 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
             let reason = "Sync “\(identity.name)” to your other devices"
             let material = try await Task.detached { try Keychain.key(for: identity.id, reason: reason) }.value
             guard let material else {
-                fail("The private key isn't on this iPhone")
+                fail("The private key isn't on this \(Device.noun)")
                 return
             }
-            try await sync.uploadKey(material, identity: identity.id)
+            // the switch goes first and uploads with the key (see `SyncEngine.upload`).
             data.identities[id: identity.id]?.syncsKey = true
+            do {
+                try await sync.uploadKey(material, identity: identity.id)
+            } catch {
+                data.identities[id: identity.id]?.syncsKey = false
+                throw error
+            }
         } catch Keychain.Failure.cancelled {
         } catch {
             fail("Couldn't sync the key", subtitle: error.localizedDescription)
@@ -287,16 +307,24 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
             hops.append(SSHHop(endpoint: hop.endpoint, credentials: try await credentials(for: hop)))
         }
         let hostIDs = chain.map(\.id)
+        // passwords to save are held until the server has accepted them, so a
+        // typo isn't stored (and synced) for next time.
+        let accepted = Mutex<[UUID: String]>([:])
         let handlers = SSHConnectHandlers(
             verifyHostKey: { _, endpoint, key in
                 await AppModel.shared.verify(key, for: endpoint, interactive: interactive)
             },
             askPassword: { index, endpoint in
                 guard interactive else { return nil }
-                return await AppModel.shared.askPassword(for: endpoint, hostID: hostIDs[index])
+                let answer = await AppModel.shared.askPassword(for: endpoint, hostID: hostIDs[index])
+                if let answer, answer.save { accepted.withLock { $0[hostIDs[index]] = answer.password } }
+                return answer?.password
             },
             progress: progress)
         let connection = try await SSHConnection.connect(hops, handlers: handlers)
+        for (hostID, password) in accepted.withLock({ $0 }) {
+            do { try savePassword(password, for: hostID) } catch { log.error("couldn't save password") }
+        }
         markConnected(host)
         return connection
     }
@@ -350,14 +378,11 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         return true
     }
 
-    private func askPassword(for endpoint: SSHEndpoint, hostID: UUID) async -> String? {
+    private func askPassword(for endpoint: SSHEndpoint, hostID: UUID) async -> (password: String, save: Bool)? {
         let saved = host(hostID) != nil
         guard case .password(let password, let save) = await prompts.ask(.password(endpoint: endpoint, canSave: saved))
         else { return nil }
-        if save, saved {
-            do { try savePassword(password, for: hostID) } catch { log.error("couldn't save password") }
-        }
-        return password
+        return (password, save && saved)
     }
 }
 

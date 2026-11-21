@@ -39,10 +39,13 @@ struct SessionsActivity: ActivityAttributes {
 struct DisconnectAllIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Disconnect All"
     static let description = IntentDescription("Closes every session and stops every tunnel.")
+    /// the shortcuts app has its own "disconnect everything".
+    static let isDiscoverable = false
 
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
             await MainActor.run { AppModel.shared.disconnectAll() }
+            await AppModel.shared.liveActivity.endNow()
         #endif
         return .result()
     }

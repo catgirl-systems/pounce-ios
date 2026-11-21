@@ -1,7 +1,6 @@
 import PounceCore
 import SwiftTerm
 import SwiftUI
-import UIKit
 
 struct TerminalScreen: View {
     @Environment(SessionManager.self) private var sessions
@@ -55,14 +54,22 @@ struct TerminalScreen: View {
         .sheet(item: startupBinding) { snippet in
             if let session { StartupSnippetSheet(session: session, snippet: snippet) }
         }
-        .onChange(of: session?.bells) { _, _ in
-            guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 0.08)) { flash = true }
-            withAnimation(.easeIn(duration: 0.35).delay(0.1)) { flash = false }
+        // tagged with the session, so switching sessions isn't taken for a bell
+        // or a state change.
+        .onChange(of: Tagged(id: selected, value: session?.bells)) { old, new in
+            guard old.id == new.id, !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 0.08)) {
+                flash = true
+            } completion: {
+                withAnimation(.easeIn(duration: 0.35)) { flash = false }
+            }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: session?.bells)
-        .sensoryFeedback(trigger: session?.state) { _, new in
-            switch new {
+        .sensoryFeedback(trigger: Tagged(id: selected, value: session?.bells)) { old, new in
+            old.id == new.id ? .impact(weight: .light) : nil
+        }
+        .sensoryFeedback(trigger: Tagged(id: selected, value: session?.state)) { old, new in
+            guard old.id == new.id else { return nil }
+            return switch new.value {
             case .connected: .impact(weight: .medium)
             case .failed: .error
             default: nil
@@ -74,6 +81,10 @@ struct TerminalScreen: View {
             }
         }
         .onChange(of: selected) { _, id in sessions.current = id }
+        // a shortcut or spotlight can present another session while this is up.
+        .onChange(of: sessions.current) { _, id in
+            if let id, id != selected, sessions.sessions[id: id] != nil { selected = id }
+        }
         .onAppear { UIApplication.shared.isIdleTimerDisabled = keepAwake }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .statusBarHidden(false)
@@ -94,14 +105,19 @@ struct TerminalScreen: View {
             .buttonBorderShape(.circle)
             .accessibilityLabel("Back to hosts")
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 4) {
                     ForEach(sessions.sessions) { other in
-                        chip(other)
+                        SessionChip(session: other, isSelected: other.id == selected, namespace: chips) {
+                            withAnimation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.25)) {
+                                selected = other.id
+                            }
+                        }
                     }
                 }
                 .padding(4)
             }
+            .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
             .glassEffect(.regular, in: .capsule)
 
@@ -109,33 +125,6 @@ struct TerminalScreen: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
-    }
-
-    private func chip(_ other: Session) -> some View {
-        let isSelected = other.id == selected
-        return Button {
-            withAnimation(.spring(duration: 0.35, bounce: 0.25)) { selected = other.id }
-        } label: {
-            HStack(spacing: 6) {
-                StatusDot(kind: other.state.dot)
-                Text(other.displayTitle)
-                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background {
-                if isSelected {
-                    Capsule().fill(.tint.opacity(0.22)).matchedGeometryEffect(id: "selection", in: chips)
-                }
-            }
-            .contentShape(.capsule)
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button("Close", systemImage: "xmark", role: .destructive) { sessions.close(other) }
-        }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func menu(_ session: Session) -> some View {
@@ -147,7 +136,8 @@ struct TerminalScreen: View {
                     selected = new.id
                 }
                 Button("Paste", systemImage: "doc.on.clipboard") {
-                    if let text = UIPasteboard.general.string { session.terminal.view.send(txt: text) }
+                    // swiftterm's own paste, which brackets it when the program asks.
+                    session.terminal.view.paste(nil)
                 }
             }
             Section {
@@ -191,6 +181,46 @@ struct TerminalScreen: View {
     }
 }
 
+/// a value that only compares as changed within the same session.
+private struct Tagged<Value: Equatable>: Equatable {
+    let id: Session.ID
+    let value: Value
+}
+
+/// its own view, so a title set by a program redraws the chip and not the screen.
+private struct SessionChip: View {
+    let session: Session
+    let isSelected: Bool
+    let namespace: Namespace.ID
+    let select: () -> Void
+    @Environment(SessionManager.self) private var sessions
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 6) {
+                StatusDot(kind: session.state.dot)
+                Text(session.displayTitle)
+                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background {
+                if isSelected {
+                    Capsule().fill(.tint.opacity(0.22)).matchedGeometryEffect(id: "selection", in: namespace)
+                }
+            }
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Close", systemImage: "xmark", role: .destructive) { sessions.close(session) }
+        }
+        .accessibilityValue(session.state.label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 // MARK: - password
 
 /// non-blocking: typing carries on and dismisses it.
@@ -208,7 +238,7 @@ private struct PasswordChip: View {
         }
         .buttonStyle(.glass)
         .disabled(session.isFilling)
-        .sensoryFeedback(.success, trigger: session.isFilling) { old, new in old && !new }
+        .sensoryFeedback(.success, trigger: session.fills)
     }
 }
 
@@ -280,7 +310,8 @@ extension View {
     fileprivate func overlayCard() -> some View {
         padding(22)
             .glassEffect(.regular, in: .rect(cornerRadius: 26))
-            .transition(.scale(scale: 0.92).combined(with: .opacity))
+            .transition(
+                UIAccessibility.isReduceMotionEnabled ? .opacity : .scale(scale: 0.92).combined(with: .opacity))
     }
 }
 
@@ -305,7 +336,7 @@ private struct TerminalHost: UIViewRepresentable {
             target: context.coordinator, action: #selector(Coordinator.pinched(_:)))
         view.addGestureRecognizer(pinch)
         context.coordinator.pinch = pinch
-        DispatchQueue.main.async { _ = view.becomeFirstResponder() }
+        Task { _ = view.becomeFirstResponder() }
         return container
     }
 
@@ -346,8 +377,11 @@ private struct TerminalHost: UIViewRepresentable {
 
 // MARK: - key bar
 
-private final class KeyBarHost: UIInputView {
+private final class KeyBarHost: UIInputView, UIInputViewAudioFeedback {
     private let host: UIHostingController<KeyBar>
+
+    /// without this `playInputClick()` stays silent.
+    var enableInputClicksWhenVisible: Bool { true }
 
     init(session: Session, showSnippets: Binding<Bool>) {
         host = UIHostingController(rootView: KeyBar(session: session, showSnippets: showSnippets))
@@ -378,11 +412,22 @@ private struct KeyBar: View {
     /// set when a hold just locked a modifier, so the tap that ends it is ignored.
     @State private var heldAt: Date?
     @AppStorage("modifierLock") private var lockGesture = ModifierLock.doubleTap
+    @AppStorage("accentHex") private var accentHex = Accent.defaultHex
+
+    /// the bar is rebuilt each time the terminal is shown while swiftterm's
+    /// modifiers live on, so a pending ctrl has to show up here.
+    init(session: Session, showSnippets: Binding<Bool>) {
+        self.session = session
+        _showSnippets = showSnippets
+        let view = session.terminal.view
+        _control = State(initialValue: view.controlModifier ? .once(.distantPast) : .off)
+        _meta = State(initialValue: view.metaModifier ? .once(.distantPast) : .off)
+    }
 
     private var view: TerminalView { session.terminal.view }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 6) {
                 key("esc") { view.send([0x1B]) }
                 toggle("ctrl", state: $control) { view.controlModifier = $0 }
@@ -404,6 +449,9 @@ private struct KeyBar: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
         }
+        .scrollIndicators(.hidden)
+        // the keyboard's window is outside the app's view tree and its tint.
+        .tint(Accent.color(hex: accentHex))
         // swiftterm drops a modifier after each key; a locked one goes back on
         // (after swiftterm's own setter has returned).
         .onReceive(NotificationCenter.default.publisher(for: .terminalViewControlModifierReset)) {
@@ -577,6 +625,10 @@ private struct RepeatKey: View {
                     repeating = nil
                 }
             }
+            .onDisappear {
+                repeating?.cancel()
+                repeating = nil
+            }
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { action() }
@@ -585,6 +637,7 @@ private struct RepeatKey: View {
 
 private struct KeyStyle: ButtonStyle {
     let isOn: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -593,7 +646,7 @@ private struct KeyStyle: ButtonStyle {
                 isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary.opacity(configuration.isPressed ? 1 : 0.6)),
                 in: .rect(cornerRadius: 9)
             )
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.92 : 1)
             .animation(.spring(duration: 0.2, bounce: 0.4), value: configuration.isPressed)
             .animation(.snappy, value: isOn)
     }

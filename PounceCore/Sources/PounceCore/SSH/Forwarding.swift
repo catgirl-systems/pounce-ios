@@ -52,7 +52,11 @@ extension SSHConnection {
         bindHost: String = "localhost", bindPort: Int, targetHost: String, targetPort: Int
     ) async throws(SSHError) -> PortForward {
         let traffic = TrafficCounter()
-        remoteForwards.register(port: bindPort, target: (targetHost, targetPort), traffic: traffic)
+        // a second forward on the same server port would otherwise take over
+        // the first one's entry, then remove it when the server refuses.
+        guard remoteForwards.register(port: bindPort, target: (targetHost, targetPort), traffic: traffic) else {
+            throw .forwardingRejected
+        }
         let response: GlobalRequest.TCPForwardingResponse?
         do {
             response = try await tcpForwarding(.listen(host: bindHost, port: bindPort))
@@ -60,8 +64,11 @@ extension SSHConnection {
             remoteForwards.unregister(port: bindPort)
             throw .forwardingRejected
         }
-        return PortForward(port: response?.boundPort ?? bindPort, traffic: traffic) { [self] in
-            remoteForwards.unregister(port: bindPort)
+        // asked for port 0, the server picks one and channels arrive under that.
+        let bound = response?.boundPort ?? bindPort
+        if bound != bindPort { remoteForwards.move(from: bindPort, to: bound) }
+        return PortForward(port: bound, traffic: traffic) { [self] in
+            remoteForwards.unregister(port: bound)
             Task { _ = try? await tcpForwarding(.cancel(host: bindHost, port: bindPort)) }
         }
     }
@@ -113,8 +120,17 @@ final class RemoteForwardRegistry: Sendable {
     }
     private let entries = Mutex<[Int: Entry]>([:])
 
-    func register(port: Int, target: (String, Int), traffic: TrafficCounter) {
-        entries.withLock { $0[port] = Entry(host: target.0, port: target.1, traffic: traffic) }
+    /// false when the port already has a forward.
+    func register(port: Int, target: (String, Int), traffic: TrafficCounter) -> Bool {
+        entries.withLock {
+            guard $0[port] == nil else { return false }
+            $0[port] = Entry(host: target.0, port: target.1, traffic: traffic)
+            return true
+        }
+    }
+
+    func move(from old: Int, to new: Int) {
+        entries.withLock { $0[new] = $0.removeValue(forKey: old) }
     }
 
     func unregister(port: Int) {
@@ -248,10 +264,12 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
         let connection = connection
         Task {
             do {
-                _ = try await connection.openDirect(host: host, port: port, from: inbound.remoteAddress) {
+                let child = try await connection.openDirect(host: host, port: port, from: inbound.remoteAddress) {
                     try $0.pipeline.syncOperations.addHandlers(remoteBound.value, CloseOnErrorHandler())
                 }
-                inbound.eventLoop.execute { handler.value.connected(inbound: inbound, glue: localBound.value) }
+                inbound.eventLoop.execute {
+                    handler.value.connected(inbound: inbound, glue: localBound.value, child: child)
+                }
             } catch {
                 // 0x05: connection refused.
                 inbound.eventLoop.execute { Self.reply(inbound, status: 5) }
@@ -259,7 +277,10 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
         }
     }
 
-    private func connected(inbound: any Channel, glue: GlueHandler) {
+    private func connected(inbound: any Channel, glue: GlueHandler, child: any Channel) {
+        // the client gave up while the channel was opening: nothing would ever
+        // tell the far side, so close it here.
+        guard inbound.isActive else { return child.close(promise: nil) }
         Self.reply(inbound, status: 0)
         let leftover = buffer.flatMap { $0.readableBytes > 0 ? $0 : nil }
         buffer = nil
@@ -271,6 +292,7 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
             }
         } catch {
             inbound.close(promise: nil)
+            child.close(promise: nil)
         }
     }
 

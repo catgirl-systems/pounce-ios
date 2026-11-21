@@ -70,7 +70,7 @@ enum Accent {
     /// adjusted per appearance so it stays readable: very light colors darken
     /// in light mode, very dark ones lighten in dark mode.
     static func color(hex: String) -> Color {
-        let base = UIColor(hex: hex) ?? UIColor(hex: defaultHex)!
+        let base = UIColor(hex: hex) ?? .systemOrange
         return Color(
             uiColor: UIColor { traits in
                 var (h, s, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)

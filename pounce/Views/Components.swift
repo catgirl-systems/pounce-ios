@@ -4,11 +4,13 @@ import SwiftUI
 // MARK: - notice banner
 
 struct NoticeBanner: View {
-    /// the terminal covers the root view's banner, so each copy shows it
-    /// only while it's on top.
-    var active = true
+    /// the terminal and sheets cover the banners beneath them, so each has
+    /// its own copy and only the one presented last shows the notice.
+    @State private var id = UUID()
     @Environment(AppModel.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var active: Bool { app.noticeOwners.last == id }
 
     var body: some View {
         ZStack {
@@ -34,6 +36,8 @@ struct NoticeBanner: View {
             guard active, let new else { return nil }
             return new.isError ? .error : .success
         }
+        .onAppear { if !app.noticeOwners.contains(id) { app.noticeOwners.append(id) } }
+        .onDisappear { app.noticeOwners.removeAll { $0 == id } }
     }
 
     private func banner(_ notice: Notice) -> some View {
@@ -138,6 +142,16 @@ extension Session.State {
         case .exited: .idle
         }
     }
+
+    /// the dot is colour only; this is what voiceover reads.
+    var label: String {
+        switch self {
+        case .connecting: "Connecting"
+        case .connected: "Connected"
+        case .failed: "Disconnected"
+        case .exited: "Ended"
+        }
+    }
 }
 
 // MARK: - randomart
@@ -158,6 +172,7 @@ struct RandomartView: View {
         .font(.system(size: 13, design: .monospaced))
         .foregroundStyle(.secondary)
         .fixedSize()
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Key randomart")
         .task(id: lines) {
             guard !reduceMotion else {
@@ -193,7 +208,6 @@ struct FingerprintText: View {
         Text(fingerprint)
             .font(.system(.footnote, design: .monospaced))
             .textSelection(.enabled)
-            .lineLimit(3)
     }
 }
 
@@ -292,11 +306,12 @@ struct ThemePreview: View {
 extension View {
     /// `action` is responsible for dismissing when it's done.
     func editorToolbar(
-        _ title: String, confirm: String = "Save", disabled: Bool = false, action: @escaping () -> Void
+        _ title: String, confirm: String = "Save", disabled: Bool = false, busy: Bool = false,
+        action: @escaping () -> Void
     ) -> some View {
         navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .modifier(EditorToolbar(confirm: confirm, disabled: disabled, action: action))
+            .modifier(EditorToolbar(confirm: confirm, disabled: disabled, busy: busy, action: action))
     }
 
     /// with `cancel`, an xmark button instead of done.
@@ -308,16 +323,18 @@ extension View {
 private struct EditorToolbar: ViewModifier {
     let confirm: String
     let disabled: Bool
+    /// work that can't be abandoned halfway is running: no cancel either.
+    let busy: Bool
     let action: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     func body(content: Content) -> some View {
-        content.toolbar {
+        content.overlay(alignment: .top) { NoticeBanner() }.toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel", systemImage: "xmark") { dismiss() }
+                Button("Cancel", systemImage: "xmark") { dismiss() }.disabled(busy)
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(confirm, systemImage: "checkmark", action: action).disabled(disabled)
+                Button(confirm, systemImage: "checkmark", action: action).disabled(disabled || busy)
             }
         }
     }
@@ -329,11 +346,23 @@ private struct DismissToolbar: ViewModifier {
     @Environment(\.dismiss) private var dismiss
 
     func body(content: Content) -> some View {
-        content.toolbar {
+        content.overlay(alignment: .top) { NoticeBanner() }.toolbar {
             ToolbarItem(placement: cancel ? .cancellationAction : .confirmationAction) {
                 Button(title, systemImage: cancel ? "xmark" : "checkmark") { dismiss() }
             }
         }
+    }
+}
+
+enum Device {
+    /// for copy that names the device; pounce runs on ipad too.
+    @MainActor static let noun = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+}
+
+extension Binding where Value == Bool {
+    /// for dialogs about an optional item: dismissing clears it.
+    static func isPresent<Item: Sendable>(_ item: Binding<Item?>) -> Binding<Bool> {
+        Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } })
     }
 }
 
@@ -399,10 +428,13 @@ extension KeyKind {
 }
 
 struct CrouchButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .contentShape(.rect)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .opacity(configuration.isPressed && reduceMotion ? 0.6 : 1)
             .animation(.spring(duration: 0.3, bounce: 0.45), value: configuration.isPressed)
     }
 }

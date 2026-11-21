@@ -13,6 +13,7 @@ import UIKit
     private var last: SessionsActivity.ContentState?
     private var watching: Task<Void, Never>?
     private var ticking: Task<Void, Never>?
+    private var pushing: Task<Void, Never>?
 
     init() {
         // a previous run that was killed can leave its activity behind.
@@ -88,7 +89,26 @@ import UIKit
 
     private var snapshot = Snapshot(shells: [], tunnels: 0)
 
+    /// for the activity's own disconnect button: ios may suspend the app again
+    /// as soon as the intent returns, so the activity has to be gone by then.
+    func endNow() async {
+        snapshot = Snapshot(shells: [], tunnels: 0)
+        await push()
+    }
+
+    /// one at a time and in order: updates suspend, and two at once could
+    /// land out of order or both start an activity.
     private func push() async {
+        let previous = pushing
+        let task = Task {
+            await previous?.value
+            await pushNow()
+        }
+        pushing = task
+        await task.value
+    }
+
+    private func pushNow() async {
         let state = SessionsActivity.ContentState(
             shells: snapshot.shells, tunnels: snapshot.tunnels, phase: phase, deadline: deadline,
             clock: Self.clock(.now))
@@ -102,14 +122,21 @@ import UIKit
             }
             return
         }
+        // `last` is only what an activity actually shows, so a state that couldn't
+        // be shown (no activity from the background) is tried again.
         guard state != last else { return }
-        last = state
         // past the deadline the widget shows the activity as paused, in case ios
         // suspends the app before it gets to say so.
         let content = ActivityContent(state: state, staleDate: phase == .background ? deadline : nil)
 
-        if let activityID, await Self.update(activityID, content: content) {
-            return
+        if let activityID {
+            if await Self.update(activityID, content: content) {
+                last = state
+                return
+            }
+            // dismissed or ended by ios; make sure it's gone before replacing it.
+            self.activityID = nil
+            await Self.end(activityID, content: nil)
         }
         // activities can only start from the foreground.
         guard ActivityAuthorizationInfo().areActivitiesEnabled,
@@ -119,6 +146,7 @@ import UIKit
             let attributes = SessionsActivity(
                 started: .now, accentHex: UserDefaults.standard.string(forKey: "accentHex") ?? Accent.defaultHex)
             activityID = try Activity.request(attributes: attributes, content: content).id
+            last = state
         } catch {
             log.error("live activity failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -127,7 +155,8 @@ import UIKit
     private nonisolated static func update(
         _ id: String, content: ActivityContent<SessionsActivity.ContentState>
     ) async -> Bool {
-        guard let activity = activity(id), activity.activityState == .active else { return false }
+        // stale is past its deadline but still on screen and updatable.
+        guard let activity = activity(id), [.active, .stale].contains(activity.activityState) else { return false }
         await activity.update(content)
         return true
     }

@@ -22,11 +22,11 @@ struct SyncView: View {
                 status(sync)
                 devices(sync)
                 Section {
-                    Button("Turn Off Sync on This iPhone", systemImage: "icloud.slash") { confirmOff = true }
+                    Button("Turn Off Sync on This \(Device.noun)", systemImage: "icloud.slash") { confirmOff = true }
                     Button("Delete Sync Account", systemImage: "trash", role: .destructive) { confirmDelete = true }
                 } footer: {
                     Text(
-                        "Turning sync off keeps everything on this iPhone. To also stop it from receiving updates, remove it on another device."
+                        "Turning sync off keeps everything on this \(Device.noun). To also stop it from receiving updates, remove it on another device."
                     )
                 }
             } else {
@@ -53,7 +53,7 @@ struct SyncView: View {
         }
         .sheet(isPresented: $exposure) { ExposureView() }
         .confirmationDialog(
-            "Remove “\(removing?.name ?? "")”?", isPresented: removingBinding, titleVisibility: .visible,
+            "Remove “\(removing?.name ?? "")”?", isPresented: .isPresent($removing), titleVisibility: .visible,
             presenting: removing
         ) { device in
             Button("Remove Device", role: .destructive) { remove(device) }
@@ -115,7 +115,7 @@ struct SyncView: View {
                     Label(device.name, systemImage: symbol(for: device.name))
                     Spacer()
                     if device.id == sync.thisDevice {
-                        Text("This iPhone").font(.caption).foregroundStyle(.secondary)
+                        Text("This \(Device.noun)").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .swipeActions {
@@ -131,10 +131,6 @@ struct SyncView: View {
         } footer: {
             Text("Device names are visible to the server. Swipe to remove one.")
         }
-    }
-
-    private var removingBinding: Binding<Bool> {
-        Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
     }
 
     private func remove(_ device: RosterDevice) {
@@ -194,7 +190,7 @@ private struct CreateSyncView: View {
                 .disabled(working)
                 .overlay { if working { ProgressView() } }
                 .editorToolbar(
-                    "Create Account", confirm: "Create", disabled: server.isEmpty || name.isEmpty || working,
+                    "Create Account", confirm: "Create", disabled: server.isEmpty || name.isEmpty, busy: working,
                     action: create)
             }
         }
@@ -304,7 +300,7 @@ private struct JoinSyncView: View {
                         Text("Check that the other device shows").foregroundStyle(.secondary)
                         Text(code)
                             .font(.system(size: 44, weight: .semibold, design: .monospaced))
-                            .contentTransition(.numericText())
+                            .speechSpellsOutCharacters()
                         Text("If it matches, tap Codes Match there. If it doesn't, cancel on both devices.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -326,12 +322,17 @@ private struct JoinSyncView: View {
                 if step == .scanning {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Paste", systemImage: "doc.on.clipboard") {
-                            if let text = UIPasteboard.general.string { scanned(text) }
+                            // a stray qr code is ignored quietly; an explicit paste isn't.
+                            guard let text = UIPasteboard.general.string, text.hasPrefix("pounce-pair:") else {
+                                return app.fail("That isn't a pairing code")
+                            }
+                            scanned(text)
                         }
                     }
                 }
             }
             .animation(.snappy, value: step)
+            .overlay(alignment: .top) { NoticeBanner() }
         }
         .interactiveDismissDisabled(step != .scanning)
         .onDisappear { task?.cancel() }
@@ -351,7 +352,7 @@ private struct JoinSyncView: View {
                 let code = try await joiner.join()
                 step = .compare(code)
                 try await app.sync.finish(joiner)
-                app.notify("Sync turned on", subtitle: "This iPhone joined the account")
+                app.notify("Sync turned on", subtitle: "This \(Device.noun) joined the account")
                 dismiss()
             } catch {
                 guard !Task.isCancelled else { return }
@@ -370,7 +371,6 @@ private struct AddDeviceView: View {
     @State private var invite: PairingInvite?
     @State private var request: PairingRequest?
     @State private var approving = false
-    @State private var task: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -384,6 +384,7 @@ private struct AddDeviceView: View {
                     Text("Check that it shows").foregroundStyle(.secondary)
                     Text(request.code)
                         .font(.system(size: 44, weight: .semibold, design: .monospaced))
+                        .speechSpellsOutCharacters()
                     Button("Codes Match") { approve(request) }
                         .buttonStyle(.glassProminent)
                         .disabled(approving)
@@ -417,32 +418,28 @@ private struct AddDeviceView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", systemImage: "xmark") {
-                        task?.cancel()
-                        dismiss()
-                    }
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
             }
             .animation(.snappy, value: request?.code)
             .sensoryFeedback(.impact, trigger: request?.code)
+            .overlay(alignment: .top) { NoticeBanner() }
         }
         .presentationDetents([.large])
-        .task { start() }
-        .onDisappear { task?.cancel() }
+        // cancelled when the sheet goes away.
+        .task { await start() }
     }
 
-    private func start() {
-        task = Task {
-            guard let engine = app.sync.engine else { return }
-            do {
-                let invite = try await engine.startPairing()
-                self.invite = invite
-                request = try await engine.waitForJoiner(invite)
-            } catch {
-                guard !Task.isCancelled else { return }
-                app.fail("Couldn't add the device", subtitle: error.localizedDescription)
-                dismiss()
-            }
+    private func start() async {
+        guard let engine = app.sync.engine else { return }
+        do {
+            let invite = try await engine.startPairing()
+            self.invite = invite
+            request = try await engine.waitForJoiner(invite)
+        } catch {
+            guard !Task.isCancelled else { return }
+            app.fail("Couldn't add the device", subtitle: error.localizedDescription)
+            dismiss()
         }
     }
 
@@ -488,15 +485,15 @@ private struct RecoverSyncView: View {
                     TextField("Device Name", text: $name)
                 } footer: {
                     Text(
-                        "Recovering signs out every other device in the account and makes this iPhone the only one. Your data comes back here."
+                        "Recovering signs out every other device in the account and makes this \(Device.noun) the only one. Your data comes back here."
                     )
                 }
             }
             .disabled(working)
             .overlay { if working { ProgressView() } }
             .editorToolbar(
-                "Recover", confirm: "Recover", disabled: server.isEmpty || code.isEmpty || name.isEmpty || working,
-                action: recover)
+                "Recover", confirm: "Recover", disabled: server.isEmpty || code.isEmpty || name.isEmpty,
+                busy: working, action: recover)
         }
         .interactiveDismissDisabled(working)
     }

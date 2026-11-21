@@ -4,6 +4,7 @@ import SwiftUI
 struct TunnelListView: View {
     @Environment(AppModel.self) private var app
     @State private var editing: Tunnel?
+    @AppStorage("keepAlive") private var keepAlive = false
 
     private var groups: [(Host, [Tunnel])] {
         app.hosts.compactMap { host in
@@ -35,7 +36,9 @@ struct TunnelListView: View {
                 Section {
                 } footer: {
                     Text(
-                        "Tunnels run while pounce is open, and for a short while after you switch away. iOS stops them after that; they restart when you come back."
+                        keepAlive
+                            ? "Tunnels keep running in the background while Stay Connected in Background is on."
+                            : "Tunnels run while pounce is open, and for a short while after you switch away. iOS stops them after that; they restart when you come back."
                     )
                 }
             }
@@ -47,6 +50,7 @@ struct TunnelListView: View {
                 } description: {
                     Text(
                         "Forward ports through your hosts: reach a database behind a bastion, or browse through a SOCKS proxy."
+                            + (app.hosts.isEmpty ? " Add a host first." : "")
                     )
                 } actions: {
                     if let host = app.hosts.first {
@@ -151,9 +155,12 @@ private struct TrafficLine: View {
             let received = traffic.bytesReceived
             HStack(spacing: 10) {
                 Label(sent.byteCount, systemImage: "arrow.up")
+                    .accessibilityLabel("Sent \(sent.byteCount)")
                 Label(received.byteCount, systemImage: "arrow.down")
+                    .accessibilityLabel("Received \(received.byteCount)")
                 if traffic.openConnections > 0 {
                     Label("\(traffic.openConnections)", systemImage: "link")
+                        .accessibilityLabel("\(traffic.openConnections) open connections")
                 }
                 FlowDots(active: flowing)
             }
@@ -251,11 +258,11 @@ struct TunnelEditor: View {
     private var explanation: String {
         switch tunnel.kind {
         case .local:
-            "Connections to a port on this iPhone go through the host to the destination, as seen from the host. Like ssh -L."
+            "Connections to a port on this \(Device.noun) go through the host to the destination, as seen from the host. Like ssh -L."
         case .remote:
-            "Connections to a port on the host come back through this iPhone to the destination, as seen from the iPhone. Like ssh -R."
+            "Connections to a port on the host come back through this \(Device.noun) to the destination, as seen from the \(Device.noun). Like ssh -R."
         case .dynamic:
-            "A SOCKS5 proxy on this iPhone; apps that use it reach the network from the host. Like ssh -D."
+            "A SOCKS5 proxy on this \(Device.noun); apps that use it reach the network from the host. Like ssh -D."
         }
     }
 }

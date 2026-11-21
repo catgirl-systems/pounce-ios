@@ -58,23 +58,51 @@ extension SSHConnection {
         return SSHShell(channel: channel, output: output, status: status)
     }
 
-    public func run(_ command: String) async throws(SSHError) -> SSHCommandResult {
+    /// `input` goes to the command's stdin, followed by eof; without it stdin
+    /// is closed straight away so commands that read it don't hang.
+    public func run(
+        _ command: String, input: Data = Data(), timeout: Duration? = nil
+    ) async throws(SSHError) -> SSHCommandResult {
         let result = Mutex(SSHCommandResult(stdout: Data(), stderr: Data(), exitStatus: nil))
-        let done = eventLoop.makePromise(of: Void.self)
-        let channel = try await openChildChannel(type: .session) { child in
-            try child.pipeline.syncOperations.addHandler(
-                SessionHandler(
-                    requests: [.exec(command)],
-                    onData: { data in result.withLock { $0.stdout.append(contentsOf: data) } },
-                    onError: { data in result.withLock { $0.stderr.append(contentsOf: data) } },
-                    onExit: { status in result.withLock { $0.exitStatus = status } },
-                    onClose: { done.succeed() }))
-        }
+        let done = eventLoop.makePromise(of: Bool.self)
+        let channel: any Channel
         do {
-            try await done.futureResult.get(closing: channel)
+            channel = try await openChildChannel(type: .session) { child in
+                try child.pipeline.syncOperations.addHandler(
+                    SessionHandler(
+                        requests: [.exec(command)],
+                        input: child.allocator.buffer(bytes: input),
+                        onData: { data in result.withLock { $0.stdout.append(contentsOf: data) } },
+                        onError: { data in result.withLock { $0.stderr.append(contentsOf: data) } },
+                        onExit: { status in result.withLock { $0.exitStatus = status } },
+                        onClose: { done.succeed(false) }))
+            }
+        } catch {
+            // nio traps on a promise dropped without an answer.
+            done.fail(error)
+            throw error
+        }
+        // the close only completes once the server reports the command gone,
+        // which a stuck command never does, so a timeout doesn't wait for it.
+        let timer = timeout.map { timeout in
+            let (seconds, attoseconds) = timeout.components
+            let nanoseconds = seconds * 1_000_000_000 + attoseconds / 1_000_000_000
+            return channel.eventLoop.scheduleTask(in: .nanoseconds(nanoseconds)) {
+                channel.close(promise: nil)
+                done.succeed(true)
+            }
+        }
+        let timedOut: Bool
+        do {
+            timedOut = try await done.futureResult.get(closing: channel)
         } catch {
             throw .wrap(error)
         }
+        timer?.cancel()
+        // cancelling closes the channel, which would pass for a normal end
+        // with half the output.
+        if Task.isCancelled { throw .cancelled }
+        if timedOut { throw .timedOut }
         return result.withLock { $0 }
     }
 }
@@ -93,17 +121,19 @@ final class SessionHandler: ChannelDuplexHandler {
     }
 
     private let requests: [Request]
+    private let input: ByteBuffer?
     private let onData: @Sendable ([UInt8]) -> Void
     private let onError: @Sendable ([UInt8]) -> Void
     private let onExit: @Sendable (Int) -> Void
     private let onClose: @Sendable () -> Void
 
     init(
-        requests: [Request], onData: @escaping @Sendable ([UInt8]) -> Void,
+        requests: [Request], input: ByteBuffer? = nil, onData: @escaping @Sendable ([UInt8]) -> Void,
         onError: (@Sendable ([UInt8]) -> Void)? = nil, onExit: @escaping @Sendable (Int) -> Void,
         onClose: @escaping @Sendable () -> Void
     ) {
         self.requests = requests
+        self.input = input
         self.onData = onData
         // a pty merges stderr into its output; commands keep it apart.
         self.onError = onError ?? onData
@@ -143,6 +173,14 @@ final class SessionHandler: ChannelDuplexHandler {
         switch event {
         case let status as SSHChannelRequestEvent.ExitStatus:
             onExit(status.exitStatus)
+        case is ChannelSuccessEvent:
+            // the server may drop data sent before it has started the command.
+            guard let input else { return }
+            if input.readableBytes > 0 {
+                context.write(wrapOutboundOut(SSHChannelData(type: .channel, data: .byteBuffer(input))), promise: nil)
+            }
+            context.flush()
+            context.close(mode: .output, promise: nil)
         case is ChannelFailureEvent:
             // the server refused the shell or command.
             context.close(promise: nil)

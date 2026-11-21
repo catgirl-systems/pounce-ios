@@ -8,6 +8,7 @@ struct IdentityListView: View {
     @Environment(AppModel.self) private var app
     @State private var importing = false
     @State private var generating = false
+    @State private var deleting: Identity?
 
     var body: some View {
         List {
@@ -15,10 +16,19 @@ struct IdentityListView: View {
                 NavigationLink(value: identity.id) {
                     IdentityRow(identity: identity)
                 }
+                .swipeActions {
+                    Button("Delete", systemImage: "trash") { deleting = identity }
+                        .tint(.red)
+                }
             }
-            .onDelete { offsets in
-                for index in offsets { app.delete(app.identities[index]) }
-            }
+        }
+        .confirmationDialog(
+            "Delete “\(deleting?.name ?? "")”?", isPresented: .isPresent($deleting), titleVisibility: .visible,
+            presenting: deleting
+        ) { identity in
+            Button("Delete Key", role: .destructive) { app.delete(identity) }
+        } message: { identity in
+            Text(identity.deletionWarning)
         }
         .navigationDestination(for: UUID.self) { id in
             if let identity = app.identity(id) { IdentityDetail(identity: identity) }
@@ -29,7 +39,7 @@ struct IdentityListView: View {
                     Label("No Keys", systemImage: "key.horizontal")
                 } description: {
                     Text(
-                        "Generate a key on this iPhone, or import one by pasting it, from a file, or by scanning a QR code."
+                        "Generate a key on this \(Device.noun), or import one by pasting it, from a file, or by scanning a QR code."
                     )
                 } actions: {
                     Button("Generate Key") { generating = true }
@@ -96,7 +106,7 @@ struct IdentityDetail: View {
 
     /// creates `authorized_keys` with the right permissions if it's missing.
     private var installCommand: String {
-        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '\(identity.publicKey)' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '\(identity.publicKey.replacing("'", with: "'\\''"))' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
     }
 
     var body: some View {
@@ -115,7 +125,7 @@ struct IdentityDetail: View {
             }
             Section {
                 TextField("Name", text: $name)
-                    .onSubmit { app.rename(identity, to: name) }
+                    .onSubmit(commitName)
                 IconPickerRow(icon: $icon, defaultSymbol: identity.kind.symbol, symbols: IconChoices.key)
                     .onChange(of: icon) { app.setIcon(identity, to: icon) }
                 LabeledContent("Type", value: identity.kind.label)
@@ -125,7 +135,7 @@ struct IdentityDetail: View {
                     Label("\(Biometry.current.name) required to use", systemImage: Biometry.current.symbol)
                 }
                 if !hasKey {
-                    Label("The private key isn't on this iPhone", systemImage: "exclamationmark.triangle")
+                    Label("The private key isn't on this \(Device.noun)", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -136,7 +146,7 @@ struct IdentityDetail: View {
                 } footer: {
                     Text(
                         identity.kind == .secureEnclaveP256
-                            ? "Keys made in the Secure Enclave can't leave this iPhone."
+                            ? "Keys made in the Secure Enclave can't leave this \(Device.noun)."
                             : "Off by default. When on, the private key is end-to-end encrypted and sent to your other devices."
                     )
                 }
@@ -176,7 +186,7 @@ struct IdentityDetail: View {
                 Text(
                     current.syncsKey
                         ? "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key."
-                        : "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key. The private key never leaves this iPhone."
+                        : "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key. The private key never leaves this \(Device.noun)."
                 )
             }
             Section {
@@ -195,13 +205,20 @@ struct IdentityDetail: View {
                 dismiss()
             }
         } message: {
-            Text(
-                identity.kind == .secureEnclaveP256
-                    ? "This key lives only in this iPhone's Secure Enclave. Once deleted, it's gone for good."
-                    : "Hosts using it will need another key or a password.")
+            Text(identity.deletionWarning)
         }
-        .onDisappear { if name != identity.name, !name.isEmpty { app.rename(identity, to: name) } }
+        .onDisappear(perform: commitName)
         .task { hasKey = Keychain.hasKey(for: identity.id) }
+    }
+
+    /// an emptied name goes back to what it was.
+    private func commitName() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            name = app.identity(identity.id)?.name ?? identity.name
+        } else if trimmed != app.identity(identity.id)?.name {
+            app.rename(identity, to: trimmed)
+        }
     }
 
     private func syncBinding(_ current: Identity) -> Binding<Bool> {
@@ -296,8 +313,8 @@ struct GenerateKeyView: View {
                 } footer: {
                     Text(
                         secureEnclave
-                            ? "An ECDSA P-256 key made inside this iPhone's Secure Enclave. It can never be copied off the device, not even by pounce. Works with any OpenSSH server from the last decade."
-                            : "A modern Ed25519 key, kept in the Keychain on this iPhone only.")
+                            ? "An ECDSA P-256 key made inside this \(Device.noun)'s Secure Enclave. It can never be copied off the device, not even by pounce. Works with any OpenSSH server from the last decade."
+                            : "A modern Ed25519 key, kept in the Keychain on this \(Device.noun) only.")
                 }
                 Section {
                     Toggle("Require \(Biometry.current.name)", isOn: $requireBiometry)
@@ -395,6 +412,8 @@ struct ImportKeyView: View {
     @State private var pickingFile = false
     @State private var created: Identity?
     @State private var saving = false
+    /// the pasteboard's change count when the key was pasted from it.
+    @State private var pastedChange: Int?
 
     var body: some View {
         let needsPassphrase = KeyImport.needsPassphrase(text)
@@ -402,7 +421,10 @@ struct ImportKeyView: View {
             Form {
                 Section {
                     HStack {
-                        Button("Paste", systemImage: "doc.on.clipboard") { load(UIPasteboard.general.string ?? "") }
+                        Button("Paste", systemImage: "doc.on.clipboard") {
+                            load(UIPasteboard.general.string ?? "")
+                            pastedChange = UIPasteboard.general.changeCount
+                        }
                         Spacer()
                         Button("Scan", systemImage: "qrcode.viewfinder") { scanning = true }
                         Spacer()
@@ -452,7 +474,7 @@ struct ImportKeyView: View {
                     load(scanned)
                 }
             }
-            .fileImporter(isPresented: $pickingFile, allowedContentTypes: [.data, .text, .item]) { result in
+            .fileImporter(isPresented: $pickingFile, allowedContentTypes: [.item]) { result in
                 guard case .success(let url) = result else { return }
                 let access = url.startAccessingSecurityScopedResource()
                 defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -489,10 +511,20 @@ struct ImportKeyView: View {
             // pasteboard longer than needed.
             self.text = ""
             self.passphrase = ""
-            if UIPasteboard.general.string?.contains("PRIVATE KEY") == true { UIPasteboard.general.string = "" }
+            // only when it still holds what was pasted here, and without reading
+            // it, which would put up the system's paste prompt.
+            if pastedChange == UIPasteboard.general.changeCount { UIPasteboard.general.items = [] }
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+extension Identity {
+    @MainActor fileprivate var deletionWarning: String {
+        kind == .secureEnclaveP256
+            ? "This key lives only in this \(Device.noun)'s Secure Enclave. Once deleted, it's gone for good."
+            : "Hosts using it will need another key or a password."
     }
 }
 

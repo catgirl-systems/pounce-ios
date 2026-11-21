@@ -17,13 +17,19 @@ struct KeyScannerView: View {
                 if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
                     Scanner(onPayload: handle)
                         .ignoresSafeArea()
+                    status
+                        .padding(.bottom, 30)
                 } else {
-                    ContentUnavailableView(
-                        "Camera Unavailable", systemImage: "camera.fill",
-                        description: Text("pounce needs camera access to scan QR codes. You can allow it in Settings."))
+                    ContentUnavailableView {
+                        Label("Camera Unavailable", systemImage: "camera.fill")
+                    } description: {
+                        Text("pounce needs camera access to scan QR codes.")
+                    } actions: {
+                        if let settings = URL(string: UIApplication.openSettingsURLString) {
+                            Link("Open Settings", destination: settings)
+                        }
+                    }
                 }
-                status
-                    .padding(.bottom, 30)
             }
             .navigationTitle("Scan Key")
             .navigationBarTitleDisplayMode(.inline)
@@ -106,7 +112,7 @@ private struct QRHelpView: View {
                 }
                 Section {
                     Label(
-                        "Prefer a key with a passphrase: a photo of the screen is then useless on its own. Even better, generate a key on this iPhone and copy only its public key to your servers.",
+                        "Prefer a key with a passphrase: a photo of the screen is then useless on its own. Even better, generate a key on this \(Device.noun) and copy only its public key to your servers.",
                         systemImage: "lock.shield"
                     )
                     .font(.subheadline)

@@ -73,7 +73,11 @@ struct HostEditor: View {
                     }
                     .onDelete { host.jumpHostIDs.remove(atOffsets: $0) }
                     .onMove { host.jumpHostIDs.move(fromOffsets: $0, toOffset: $1) }
-                    let candidates = app.hosts.filter { $0.id != host.id && !host.jumpHostIDs.contains($0.id) }
+                    // not hosts that already reach this one through their own jumps.
+                    let candidates = app.hosts.filter { candidate in
+                        !host.jumpHostIDs.contains(candidate.id)
+                            && (try? app.jumpChain(for: candidate))?.contains { $0.id == host.id } == false
+                    }
                     if !candidates.isEmpty {
                         Menu {
                             ForEach(candidates) { candidate in
@@ -93,7 +97,7 @@ struct HostEditor: View {
 
                 Section("Tags") {
                     if !host.tags.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
+                        ScrollView(.horizontal) {
                             HStack {
                                 ForEach(host.tags, id: \.self) { tag in
                                     Button {
@@ -107,10 +111,12 @@ struct HostEditor: View {
                                             .background(.tint.opacity(0.15), in: .capsule)
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityLabel("Remove tag \(tag)")
                                     .transition(.scale.combined(with: .opacity))
                                 }
                             }
                         }
+                        .scrollIndicators(.hidden)
                     }
                     TextField("Add Tag", text: $newTag)
                         .textInputAutocapitalization(.never)
@@ -169,11 +175,9 @@ struct HostEditor: View {
         host.hostname = host.hostname.trimmingCharacters(in: .whitespaces)
         host.username = host.username.trimmingCharacters(in: .whitespaces)
         let wasSyncing = app.host(host.id)?.syncsPassword ?? false
-        if removePassword {
-            Keychain.deletePassword(for: host.id)
-            host.syncsPassword = false
-        }
-        if !hasPassword && password.isEmpty { host.syncsPassword = false }
+        if removePassword { Keychain.deletePassword(for: host.id) }
+        // a replacement typed after removing keeps its sync switch.
+        if password.isEmpty, removePassword || !hasPassword { host.syncsPassword = false }
         app.save(host)
         if !password.isEmpty {
             do {

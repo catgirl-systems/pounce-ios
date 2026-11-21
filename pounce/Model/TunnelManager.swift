@@ -32,12 +32,12 @@ import PounceCore
 
     func traffic(_ tunnel: Tunnel) -> TrafficCounter? { forwards[tunnel.id]?.traffic }
 
-    func start(_ tunnel: Tunnel) {
+    func start(_ tunnel: Tunnel, interactive: Bool = true) {
         guard !isOn(tunnel), let host = AppModel.shared.host(tunnel.hostID) else { return }
         status[tunnel.id] = .starting
         starts[tunnel.id] = Task {
             do {
-                let connection = try await connection(for: host)
+                let connection = try await connection(for: host, interactive: interactive)
                 let forward: PortForward =
                     switch tunnel.kind {
                     case .local:
@@ -49,15 +49,20 @@ import PounceCore
                     case .dynamic:
                         try await connection.startDynamicForward(bindPort: tunnel.bindPort)
                     }
+                // `stop` ran before the connection was there to close.
                 guard !Task.isCancelled else {
                     forward.close()
+                    closeIdleConnection(for: tunnel.hostID)
                     return
                 }
                 forwards[tunnel.id] = forward
                 status[tunnel.id] = .running(port: forward.port)
             } catch {
-                guard !Task.isCancelled else { return }
-                status[tunnel.id] = .failed(error.localizedDescription)
+                guard !Task.isCancelled else { return closeIdleConnection(for: tunnel.hostID) }
+                status[tunnel.id] = .failed(
+                    (error as? SSHError) == .hostKeyRejected && !interactive
+                        ? "Connect to \(host.displayName) in pounce once to trust its host key."
+                        : error.localizedDescription)
                 closeIdleConnection(for: tunnel.hostID)
             }
             starts[tunnel.id] = nil
@@ -86,10 +91,10 @@ import PounceCore
         dropped = []
     }
 
-    private func connection(for host: Host) async throws -> SSHConnection {
+    private func connection(for host: Host, interactive: Bool) async throws -> SSHConnection {
         if let existing = connections[host.id], existing.isActive { return existing }
         if let task = pending[host.id] { return try await task.value }
-        let task = Task { try await AppModel.shared.connect(host) }
+        let task = Task { try await AppModel.shared.connect(host, interactive: interactive) }
         pending[host.id] = task
         defer { pending[host.id] = nil }
         let connection = try await task.value

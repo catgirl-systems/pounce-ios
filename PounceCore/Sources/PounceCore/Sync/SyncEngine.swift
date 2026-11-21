@@ -457,7 +457,10 @@ public actor SyncEngine {
                 if change.payload.kind == .host { vault.deletePassword(host: owner) }
             }
         }
-        for secret in secrets { store(secret, identities: snapshot.identities) }
+        // read again: an identity can arrive in the same page as its key, and
+        // decides whether the key is stored behind face id.
+        let identities = changes.isEmpty ? snapshot.identities : try await self.snapshot().identities
+        for secret in secrets { store(secret, identities: identities) }
         save()
         return report
     }
@@ -538,6 +541,9 @@ public actor SyncEngine {
         let id = SyncRecords.secretID(payload.kind, owner: owner)
         try await withSession { token throws(SyncError) in
             try await refreshRoster(token: token)
+            // the owner's sync switch has to reach the server before its secret:
+            // a device that sees the secret with the switch still off deletes it.
+            _ = try await push(token: token)
             let epoch = state.roster.epoch
             let key = try await epochKey(epoch, token: token)
             for _ in 0..<3 {

@@ -53,9 +53,11 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
 
     private func refresh() async {
         guard let engine else { return }
-        devices = await engine.devices
-        thisDevice = await engine.deviceID
-        server = await engine.origin
+        // runs after every round; unchanged values shouldn't redraw settings.
+        let (devices, thisDevice, server) = await (engine.devices, engine.deviceID, engine.origin)
+        if devices != self.devices { self.devices = devices }
+        if thisDevice != self.thisDevice { self.thisDevice = thisDevice }
+        if server != self.server { self.server = server }
     }
 
     // MARK: the loop
@@ -89,17 +91,19 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
                     again = false
                     continue
                 }
+                // stopped during the round: a restarted loop has its own wait by now.
+                guard !Task.isCancelled else { return }
                 let wait = Task { try await engine.waitForChanges() }
                 waiting = wait
                 _ = try? await wait.value
-                waiting = nil
+                if waiting == wait { waiting = nil }
             } catch SyncError.removed {
                 isSyncing = false
                 syncLog.notice("this device was removed from sync")
                 await engine.forget()
                 self.engine = nil
                 loop = nil
-                AppModel.shared.fail("This iPhone was removed from sync", subtitle: "Your data stays on it.")
+                AppModel.shared.fail("This \(Device.noun) was removed from sync", subtitle: "Your data stays on it.")
                 return
             } catch {
                 isSyncing = false

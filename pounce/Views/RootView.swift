@@ -44,7 +44,7 @@ struct RootView: View {
             }
         }
         .prompts(active: sessions.presented == nil)
-        .overlay(alignment: .top) { NoticeBanner(active: sessions.presented == nil) }
+        .overlay(alignment: .top) { NoticeBanner() }
     }
 
     /// a new session zooms out of its host's row; returning to one zooms
@@ -95,5 +95,6 @@ private struct SessionsAccessory: View {
         .buttonStyle(.plain)
         .animation(.snappy, value: sessions.sessions.count)
         .accessibilityLabel("Open sessions, \(session?.displayTitle ?? "")")
+        .accessibilityValue(session?.state.label ?? "")
     }
 }

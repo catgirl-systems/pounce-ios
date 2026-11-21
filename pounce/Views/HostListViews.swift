@@ -9,6 +9,8 @@ struct HostListView: View {
     @State private var editing: Host?
     @State private var importing = false
     @State private var tag: String?
+    @State private var ignoresFocus = false
+    @State private var deleting: Host?
 
     var body: some View {
         let quickConnect = quickConnect
@@ -17,6 +19,20 @@ struct HostListView: View {
         let others = filtered.filter { !shown.contains($0.id) }
         let tags = app.tags
         List {
+            if app.focus.isActive {
+                Section {
+                    Button {
+                        ignoresFocus.toggle()
+                    } label: {
+                        Label {
+                            Text(ignoresFocus ? "Showing all hosts" : "Focus shows \(app.focus.tags.formatted())")
+                                .foregroundStyle(.primary)
+                        } icon: {
+                            Image(systemName: ignoresFocus ? "moon" : "moon.fill").foregroundStyle(.indigo)
+                        }
+                    }
+                }
+            }
             if let quick = quickConnect {
                 Section {
                     Button {
@@ -99,6 +115,19 @@ struct HostListView: View {
         .sheet(isPresented: $importing) {
             ConfigImportView()
         }
+        .confirmationDialog(
+            "Delete “\(deleting?.displayName ?? "")”?", isPresented: .isPresent($deleting), titleVisibility: .visible,
+            presenting: deleting
+        ) { host in
+            Button("Delete Host", role: .destructive) { app.delete(host) }
+        } message: { _ in
+            Text("Its saved password and tunnels are deleted too.")
+        }
+        // the filter menu goes away with the last tag, which would leave the
+        // list stuck on a tag nothing has.
+        .onChange(of: tags) {
+            if let tag, !tags.contains(tag) { self.tag = nil }
+        }
         .sensoryFeedback(.selection, trigger: tag)
     }
 
@@ -112,7 +141,9 @@ struct HostListView: View {
             .buttonStyle(CrouchButtonStyle())
             .matchedTransitionSource(id: "host-\(host.id)", in: namespace)
             .swipeActions(edge: .trailing) {
-                Button("Delete", systemImage: "trash", role: .destructive) { app.delete(host) }
+                // not the destructive role, which takes the row away before the answer.
+                Button("Delete", systemImage: "trash") { deleting = host }
+                    .tint(.red)
                 Button("Edit", systemImage: "pencil") { editing = host }
                     .tint(.gray)
             }
@@ -136,7 +167,7 @@ struct HostListView: View {
                 }
                 Button("Copy Address", systemImage: "doc.on.doc") { UIPasteboard.general.string = host.address }
                 Divider()
-                Button("Delete", systemImage: "trash", role: .destructive) { app.delete(host) }
+                Button("Delete", systemImage: "trash", role: .destructive) { deleting = host }
             }
         }
     }
@@ -146,7 +177,8 @@ struct HostListView: View {
     private func sections() -> (all: [Host], favorites: [Host], recents: [Host]) {
         let query = search.trimmingCharacters(in: .whitespaces).lowercased()
         let all = app.hosts
-            .filter { tag == nil || $0.tags.contains(tag!) }
+            .filter { host in tag.map(host.tags.contains) ?? true }
+            .filter { ignoresFocus || app.focus.shows($0) }
             .filter {
                 query.isEmpty
                     || [$0.label, $0.hostname, $0.username, $0.address].contains { $0.lowercased().contains(query) }
@@ -241,7 +273,7 @@ struct ConfigImportView: View {
                     )
                 }
                 if !entries.isEmpty {
-                    Section("\(entries.count) Hosts") {
+                    Section(entries.count == 1 ? "1 Host" : "\(entries.count) Hosts") {
                         ForEach(entries, id: \.alias) { entry in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(entry.alias).font(.body.weight(.medium))

@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage("showEndCard") private var showEndCard = true
     @AppStorage("savePasswords") private var savePasswords = true
     @AppStorage("fillNeedsBiometry") private var fillNeedsBiometry = false
+    @AppStorage("allowShortcuts") private var allowShortcuts = true
     @AppStorage("programTitles") private var programTitles = true
     @AppStorage("modifierLock") private var modifierLock = ModifierLock.doubleTap
     @State private var confirmErase = false
@@ -85,6 +86,7 @@ struct SettingsView: View {
                 Toggle(
                     "\(biometryName) to Fill Passwords",
                     isOn: authenticated($fillNeedsBiometry, reason: "\(biometryName) for filling passwords"))
+                Toggle("Allow Shortcuts", isOn: authenticated($allowShortcuts, reason: "Shortcuts access"))
                 NavigationLink {
                     KnownHostsView()
                 } label: {
@@ -94,7 +96,7 @@ struct SettingsView: View {
                 Text("Security")
             } footer: {
                 Text(
-                    "Keys and passwords stay in this iPhone's Keychain and aren't included in backups. They sync only if you turn that on for a key or host. When a session asks for a password the host has saved, pounce offers to fill it in."
+                    "Keys and passwords stay in this \(Device.noun)'s Keychain and aren't included in backups. They sync only if you turn that on for a key or host. When a session asks for a password the host has saved, pounce offers to fill it in. Shortcuts can sign in with your keys and passwords to run commands and start tunnels; with the lock on, they ask for \(biometryName) first."
                 )
             }
             Section {
@@ -107,6 +109,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .onChange(of: appLock) { app.spotlight.update() }
         .sensoryFeedback(.selection, trigger: fontSize)
         .sheet(isPresented: $importing) { ConfigImportView() }
         .confirmationDialog("Erase everything?", isPresented: $confirmErase, titleVisibility: .visible) {
@@ -116,7 +119,7 @@ struct SettingsView: View {
             }
         } message: {
             Text(
-                "Removes all hosts, keys, passwords, tunnels, snippets and known hosts from this iPhone. Keys made in the Secure Enclave can't be recovered."
+                "Removes all hosts, keys, passwords, tunnels, snippets and known hosts from this \(Device.noun). Keys made in the Secure Enclave can't be recovered."
             )
         }
     }
@@ -218,16 +221,14 @@ struct KnownHostsView: View {
 
     var body: some View {
         List {
-            ForEach(app.knownHosts, id: \.self) { known in
+            ForEach(app.knownHosts) { known in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(known.port == 22 ? known.host : "[\(known.host)]:\(known.port)")
                         .font(.body.weight(.medium))
                     if let key = try? SSHPublicKey(blob: known.key) {
-                        Text(key.fingerprint)
-                            .font(.system(.caption2, design: .monospaced))
+                        // in full: this screen is where fingerprints get checked.
+                        FingerprintText(fingerprint: key.fingerprint)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
                         Text("\(key.kind.label) · added \(known.added.formatted(date: .abbreviated, time: .omitted))")
                             .font(.caption)
                             .foregroundStyle(.tertiary)

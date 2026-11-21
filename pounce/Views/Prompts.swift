@@ -53,6 +53,7 @@ struct HostKeySheet: View {
     let prompt: PromptCenter.Prompt
     @Environment(PromptCenter.self) private var prompts
     @State private var confirmReplace = false
+    @State private var appeared = false
     /// measured so a new host's sheet opens just tall enough.
     @State private var contentHeight: CGFloat = 520
 
@@ -152,7 +153,9 @@ struct HostKeySheet: View {
             }
         }
         .padding(.top, 4)
-        .sensoryFeedback(changed ? .warning : .selection, trigger: prompt.id)
+        // the prompt never changes while its sheet is up; appearing is the trigger.
+        .onAppear { appeared = true }
+        .sensoryFeedback(changed ? .warning : .selection, trigger: appeared)
     }
 }
 
