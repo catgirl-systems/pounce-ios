@@ -2,10 +2,10 @@
 import PackageDescription
 
 // SwiftTerm v1.20.0, vendored with only the library target: no build plugin,
-// no macOS sources, no Metal shaders (see VENDORED.md).
+// no macOS sources, no Metal renderer (see VENDORED.md).
 let package = Package(
     name: "SwiftTerm",
-    platforms: [.iOS(.v14), .macOS(.v11)],
+    platforms: [.iOS(.v14)],
     products: [
         .library(name: "SwiftTerm", targets: ["SwiftTerm"])
     ],

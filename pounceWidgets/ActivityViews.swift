@@ -1,8 +1,7 @@
 import AppIntents
 import SwiftUI
 
-/// what the views draw, without activitykit's context: the stale check is
-/// already folded into `phase`.
+/// views read `phase`, not `state.phase`: it already has the stale check folded in
 struct ActivityModel {
     var state: SessionsActivity.ContentState
     var phase: SessionsActivity.ContentState.Phase
@@ -10,10 +9,6 @@ struct ActivityModel {
     var accent: Color
 }
 
-// MARK: - lock screen
-
-/// one picture: the garden on top, and its dark foreground rolling down under
-/// the text.
 struct LockScreenView: View {
     let model: ActivityModel
 
@@ -39,8 +34,6 @@ struct LockScreenView: View {
                         Text("Open pounce to reconnect").font(.caption).opacity(0.7)
                     } else if !model.state.shells.isEmpty {
                         ShellList(shells: model.state.shells, limit: 3)
-                    } else {
-                        Text("Forwarding ports").font(.caption).opacity(0.7)
                     }
                 }
                 Spacer(minLength: 0)
@@ -55,8 +48,6 @@ struct LockScreenView: View {
         .foregroundStyle(.white)
     }
 }
-
-// MARK: - dynamic island
 
 struct IslandHeader: View {
     let model: ActivityModel
@@ -81,12 +72,12 @@ struct IslandBottom: View {
                 .frame(height: 54)
                 .clipShape(.rect(cornerRadius: 16))
             HStack(spacing: 10) {
-                if model.state.shells.isEmpty {
-                    Text(model.phase == .paused ? "Open pounce to reconnect" : "Forwarding ports")
+                if !model.state.shells.isEmpty {
+                    ShellList(shells: model.state.shells, limit: 2)
+                } else if model.phase == .paused {
+                    Text("Open pounce to reconnect")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    ShellList(shells: model.state.shells, limit: 2)
                 }
                 Spacer(minLength: 0)
                 DisconnectButton()
@@ -96,7 +87,6 @@ struct IslandBottom: View {
     }
 }
 
-/// the cat's face in the accent colour; eyes shut and dimmed once paused.
 struct PhaseGlyph: View {
     let model: ActivityModel
 
@@ -110,10 +100,6 @@ struct PhaseGlyph: View {
     }
 }
 
-// MARK: - pieces
-
-/// a dot and the time connected while live, the time left in the background,
-/// and just "paused" after that.
 struct PhaseStatus: View {
     let model: ActivityModel
 
@@ -147,7 +133,6 @@ struct PhaseStatus: View {
     static let amber = Color(red: 1, green: 0.82, blue: 0.48)
 }
 
-/// counts up while live and down in the background; empty once paused.
 struct PhaseClock: View {
     let model: ActivityModel
 
@@ -182,7 +167,7 @@ private struct ShellList: View {
         HStack(spacing: 6) {
             ForEach(Array(shells.prefix(limit).enumerated()), id: \.offset) { _, shell in
                 HStack(spacing: 5) {
-                    // hollow when dropped, so it doesn't rest on colour alone.
+                    // hollow when dropped, so the state doesn't rely on colour alone
                     Circle()
                         .strokeBorder(shell.connected ? PhaseStatus.green : PhaseStatus.amber, lineWidth: 1.5)
                         .background(Circle().fill(shell.connected ? PhaseStatus.green : .clear))

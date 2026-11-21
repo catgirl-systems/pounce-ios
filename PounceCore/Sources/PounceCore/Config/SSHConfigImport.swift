@@ -1,15 +1,14 @@
 import Foundation
 
-/// pattern hosts (`Host *`) aren't imported, but their settings still apply to
-/// the hosts they match, first match wins like openssh. `Match` blocks are
-/// ignored.
+/// pattern hosts (`Host *`) aren't imported, but their settings still apply to the hosts
+/// they match, first match wins like openssh. `Match` blocks are ignored
 public enum SSHConfigImport {
     public struct Entry: Sendable, Hashable {
         public var alias: String
         public var hostname: String
         public var user: String?
         public var port: Int
-        /// aliases or `[user@]host[:port]` specs, in hop order.
+        /// aliases or `[user@]host[:port]` specs, in hop order
         public var proxyJump: [String]
         public var forwards: [Forward]
     }
@@ -36,7 +35,6 @@ public enum SSHConfigImport {
             case "host":
                 blocks.append(Block(patterns: value.split(whereSeparator: \.isWhitespace).map(String.init)))
             case "match":
-                // `Match` conditions can't be evaluated here; ignore the block.
                 blocks.append(Block(patterns: []))
             default:
                 blocks[blocks.count - 1].options.append((key, value))
@@ -57,7 +55,7 @@ public enum SSHConfigImport {
         for block in blocks where matches(alias, block.patterns) {
             for (key, value) in block.options {
                 switch key {
-                // forwards accumulate; everything else is first match wins.
+                // forwards accumulate, everything else is first match wins
                 case "localforward", "remoteforward":
                     if let forward = parseForward(value, kind: key == "localforward" ? .local : .remote) {
                         entry.forwards.append(forward)
@@ -81,7 +79,7 @@ public enum SSHConfigImport {
         return entry
     }
 
-    /// `LocalForward [bind:]port host:hostport`, also accepting `host/port`.
+    /// `LocalForward [bind:]port host:hostport`, also accepting `host/port`
     private static func parseForward(_ value: String, kind: Tunnel.Kind) -> Forward? {
         let parts = value.split(whereSeparator: \.isWhitespace)
         guard parts.count == 2,
@@ -101,7 +99,7 @@ public enum SSHConfigImport {
         return (key, String(value).trimmingCharacters(in: .whitespaces))
     }
 
-    /// any matching `!pattern` excludes the alias, whatever the other patterns say.
+    /// any matching `!pattern` excludes the alias, whatever the other patterns say
     private static func matches(_ alias: String, _ patterns: [String]) -> Bool {
         !patterns.contains { $0.hasPrefix("!") && glob(String($0.dropFirst()), alias) }
             && patterns.contains { !$0.hasPrefix("!") && glob($0, alias) }
@@ -120,7 +118,7 @@ public enum SSHConfigImport {
     }
 }
 
-/// accepts `[user@]host[:port]` and `ssh user@host -p 2222`.
+/// accepts `[user@]host[:port]` and `ssh user@host -p 2222`
 public enum QuickConnect {
     public static func parse(_ input: String, defaultUser: String = "root") -> SSHEndpoint? {
         var words = input.split(whereSeparator: \.isWhitespace).map(String.init)
@@ -144,7 +142,7 @@ public enum QuickConnect {
             rest = String(rest[rest.index(after: at)...])
         }
         var host = rest
-        // `[v6]:port`, `host:port`, or a bare ipv6 address.
+        // `[v6]:port`, `host:port`, or a bare ipv6 address
         if rest.hasPrefix("["), let close = rest.firstIndex(of: "]") {
             host = String(rest[rest.index(after: rest.startIndex)..<close])
             let after = rest[rest.index(after: close)...]

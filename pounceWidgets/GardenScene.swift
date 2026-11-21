@@ -1,17 +1,12 @@
 import SwiftUI
 
-/// the sun climbs from 6:00, hangs near the top 12:00 to 16:00 and sets by
-/// 20:00; at night the cat lies watching the stars and the moon in its real
-/// phase. shapes only, so no assets; recomputed from the date on every render.
+/// shapes only, so no assets; everything is computed from `date` on each render
 struct GardenScene: View {
     let date: Date
-    /// the connections are paused: the cat curls up and sleeps whatever the hour.
     var asleep = false
-    /// how much of the bottom edge something in front covers; the cat sits
-    /// clear of it.
+    /// height of the bottom edge hidden by something in front; the cat sits above it
     var covered: CGFloat = 0
 
-    /// the dark foreground the activity's text sits on, matched to the hour.
     static func ground(at date: Date) -> Color { Sky(hour: hour(of: date)).ground.color }
 
     var body: some View {
@@ -25,7 +20,7 @@ struct GardenScene: View {
             let horizon = size.height * 0.7
             let point = { (arc: Celestial.Arc) in
                 CGPoint(
-                    x: size.width * (0.06 + 0.88 * arc.progress),
+                    x: size.width * arc.x,
                     y: horizon - arc.elevation * (horizon - size.height * 0.2))
             }
             ZStack(alignment: .topLeading) {
@@ -65,7 +60,6 @@ struct GardenScene: View {
                         .position(point(sun))
                 }
 
-                // far hills, hazed towards the sky behind them.
                 Hill(wave: -0.16)
                     .fill(sky.backHill.mix(sky.bottom, 0.5).color)
                     .frame(height: size.height - horizon + size.height * 0.16)
@@ -88,7 +82,7 @@ struct GardenScene: View {
                 let ground = horizon + size.height * 0.22 - covered
                 let pose: CatPose = asleep ? .sleeping : sky.night > 0.5 ? .lying : .sitting
                 let height = size.height * (asleep ? 0.4 : sky.night > 0.5 ? 0.46 : 0.62)
-                let sunX = 0.06 + 0.88 * (sun?.progress ?? 0.3)
+                let sunX = (sun ?? Celestial.Arc(progress: 0.3, elevation: 0)).x
                 Cat(
                     pose: pose, colors: CatColors(night: sky.night),
                     lean: pose.tilt == 0 && !asleep ? max(-1, min(1, (sunX - Garden.catX) * 2)) : 0
@@ -107,26 +101,24 @@ struct GardenScene: View {
         .accessibilityLabel(asleep ? "A cat asleep in the garden" : Sky.description(hour: hour))
     }
 
-    /// fractional hours since midnight (13.5 is 13:30).
+    /// fractional, so 13.5 is 13:30
     static func hour(of date: Date) -> Double {
         let parts = Calendar.current.dateComponents([.hour, .minute, .second], from: date)
         return Double(parts.hour ?? 12) + Double(parts.minute ?? 0) / 60 + Double(parts.second ?? 0) / 3600
     }
 }
 
-// MARK: - sun and moon
-
 enum Celestial {
     struct Arc {
-        /// from the left horizon (0) to the right one (1).
+        /// from the left horizon (0) to the right one (1)
         var progress: Double
-        /// 0 on the horizon, 1 at the top; a little below 0 when setting behind the
-        /// hills.
+        /// 0 on the horizon, 1 at the top, a little below 0 when behind the hills
         var elevation: Double
+        var x: Double { 0.06 + 0.88 * progress }
     }
 
-    /// up through the morning, slowing near the top from 12:00 to 16:00, then
-    /// down faster and faster into the sunset. nil at night.
+    /// rises from 6:00, slows near the top from 12:00 to 16:00, then sets
+    /// faster and faster until 20:00
     static func sun(hour h: Double) -> Arc? {
         guard h >= 6, h < 20 else { return nil }
         let progress: Double
@@ -143,22 +135,20 @@ enum Celestial {
         return Arc(progress: progress, elevation: sin(.pi * progress) * 1.08 - 0.08)
     }
 
-    /// across the sky from 20:00 to 6:00. nil by day.
     static func moon(hour h: Double) -> Arc? {
         guard h >= 20 || h < 6 else { return nil }
         let progress = (h >= 20 ? h - 20 : h + 4) / 10
         return Arc(progress: progress, elevation: sin(.pi * progress) * 0.95 - 0.05)
     }
 
-    /// pale yellow up high, orange near the horizon, redder in the evening.
     static func sunColor(warmth: Double, evening: Bool) -> RGB {
         let warm = RGB(0xFF9A3C).mix(RGB(0xF2604A), evening ? warmth * 0.6 : 0)
         return RGB(0xFFF4B8).mix(warm, warmth)
     }
 
-    /// 0 new, 0.25 first quarter, 0.5 full, 0.75 last quarter.
+    /// 0 new, 0.25 first quarter, 0.5 full, 0.75 last quarter
     static func moonPhase(on date: Date) -> Double {
-        // a known new moon: 6 january 2000, 18:14 utc.
+        // a known new moon: 6 january 2000, 18:14 utc
         let reference = Date(timeIntervalSince1970: 947_182_440)
         let synodicMonth = 29.530_588_853 * 86_400
         let cycles = date.timeIntervalSince(reference) / synodicMonth
@@ -166,7 +156,7 @@ enum Celestial {
     }
 }
 
-/// the lit part bright, the rest faintly there (earthshine).
+/// the unlit part stays faintly visible (earthshine)
 private struct MoonDisc: View {
     let phase: Double
 
@@ -181,15 +171,15 @@ private struct MoonDisc: View {
     }
 }
 
-/// the bright limb on one side, closed by the terminator: an ellipse whose
-/// width follows the phase.
+/// a half circle on the lit side, closed by the terminator: a half ellipse
+/// whose width follows the phase
 private struct MoonLight: Shape {
     let phase: Double
 
     func path(in rect: CGRect) -> Path {
         let r = rect.width / 2
         let center = CGPoint(x: rect.midX, y: rect.midY)
-        // waxing, the right side is lit (as seen from the northern hemisphere).
+        // waxing, the right side is lit (as seen from the northern hemisphere)
         let side: Double = phase < 0.5 ? 1 : -1
         let k = cos(2 * .pi * phase)
         let steps = 32
@@ -208,24 +198,9 @@ private struct MoonLight: Shape {
     }
 }
 
-// MARK: - the sky over the day
-
-/// blendable, which swiftui's `Color` can't do in a widget without resolving
-/// it first.
+/// SwiftUI's `Color` can't be blended in a widget without resolving it first
 struct RGB {
     var r, g, b: Double
-
-    init(_ hex: UInt32) {
-        r = Double((hex >> 16) & 0xFF) / 255
-        g = Double((hex >> 8) & 0xFF) / 255
-        b = Double(hex & 0xFF) / 255
-    }
-
-    init(r: Double, g: Double, b: Double) {
-        self.r = r
-        self.g = g
-        self.b = b
-    }
 
     func mix(_ other: RGB, _ t: Double) -> RGB {
         RGB(r: r + (other.r - r) * t, g: g + (other.g - g) * t, b: b + (other.b - b) * t)
@@ -234,18 +209,25 @@ struct RGB {
     var color: Color { Color(red: r, green: g, blue: b) }
 }
 
+extension RGB {
+    init(_ hex: UInt32) {
+        self.init(
+            r: Double((hex >> 16) & 0xFF) / 255, g: Double((hex >> 8) & 0xFF) / 255, b: Double(hex & 0xFF) / 255)
+    }
+}
+
 struct Sky {
     var top: RGB
     var bottom: RGB
     var backHill: RGB
     var lawn: RGB
     var fence: RGB
-    /// 0 in daylight, 1 in full night: stars, moon, the cat lying down.
+    /// 0 in daylight, 1 in full night
     var night: Double
-    /// the lawn in deep shade: dark enough for white text at any hour.
+    /// the lawn in deep shade, dark enough for white text at any hour
     var ground: RGB { lawn.mix(RGB(0x0D2117), 0.62) }
 
-    /// key moments of the day: hour, sky top, sky bottom, back hill, lawn.
+    /// hour, sky top, sky bottom, back hill, lawn
     private static let keys: [(Double, UInt32, UInt32, UInt32, UInt32)] = [
         (0, 0x0B1030, 0x241E52, 0x1E3328, 0x253F31),
         (5.3, 0x10173D, 0x2A2560, 0x1E3328, 0x253F31),
@@ -293,10 +275,8 @@ struct Sky {
     }
 }
 
-// MARK: - what's scattered where
-
-/// seeded so the garden stays put all day and changes the next. a garden day
-/// runs 6:00 to 6:00, so the night sky doesn't change at midnight.
+/// seeded so the garden stays the same all day and changes the next. a day
+/// runs from 6:00 to 6:00, so the night sky doesn't change at midnight
 struct Garden {
     struct Flower {
         var x, depth, size: Double
@@ -309,7 +289,6 @@ struct Garden {
         var sparkle: Bool
     }
 
-    /// flowers keep clear of it.
     static let catX = 0.2
 
     private static let colors: [UInt32] = [0xF7A8C4, 0xFFE27A, 0xFFFFFF, 0xC9B3F5, 0x9CC9F5, 0xFF9E8A]
@@ -351,7 +330,7 @@ struct Garden {
                     size: .random(in: 0.6...1.3, using: &random), sparkle: i < 3))
         }
         for i in 0..<Int.random(in: 2...3, using: &random) {
-            // spread across thirds so they don't pile up.
+            // one per third, so they don't pile up
             clouds.append(
                 (
                     (Double(i) + .random(in: 0.25...0.75, using: &random)) / 3 + 0.1,
@@ -363,7 +342,6 @@ struct Garden {
         }
     }
 
-    /// at night, a shooting star now and then: a fresh chance every five minutes.
     func shootingStar(at date: Date) -> (x: Double, y: Double, angle: Double)? {
         let slot = UInt64(max(0, date.timeIntervalSince1970 / 300))
         var random = SeededRandom(seed: seed &* 31 &+ slot)
@@ -375,7 +353,7 @@ struct Garden {
     }
 }
 
-/// splitmix64: small, fast, and the same sequence for the same seed.
+/// splitmix64, because the system generator can't be seeded
 struct SeededRandom: RandomNumberGenerator {
     private var state: UInt64
 
@@ -389,8 +367,6 @@ struct SeededRandom: RandomNumberGenerator {
         return z ^ (z >> 31)
     }
 }
-
-// MARK: - garden
 
 struct Hill: Shape {
     var wave: Double
@@ -487,7 +463,6 @@ private struct Tuft: Shape {
     }
 }
 
-/// three overlapping puffs each, warmed by the sky near the horizon.
 private struct Clouds: View {
     let clouds: [(x: Double, y: Double, size: Double)]
     let size: CGSize
@@ -526,7 +501,6 @@ private struct Fireflies: View {
     }
 }
 
-/// rising "z"s over the sleeping cat.
 private struct Snore: View {
     let color: Color
 
@@ -562,7 +536,7 @@ private struct StarField: View {
                     Circle().frame(width: d, height: d)
                 }
             }
-            .foregroundStyle(Color(red: 1, green: 0.97, blue: 0.86).opacity(index.isMultiple(of: 3) ? 0.65 : 1))
+            .foregroundStyle(starlight.opacity(index.isMultiple(of: 3) ? 0.65 : 1))
             .position(x: size.width * star.x, y: horizon * 0.92 * star.y)
         }
     }
@@ -570,13 +544,14 @@ private struct StarField: View {
 
 private struct ShootingStar: View {
     var body: some View {
-        let light = Color(red: 1, green: 0.97, blue: 0.86)
         Capsule()
-            .fill(LinearGradient(colors: [light.opacity(0), light], startPoint: .leading, endPoint: .trailing))
+            .fill(LinearGradient(colors: [starlight.opacity(0), starlight], startPoint: .leading, endPoint: .trailing))
             .frame(height: 1.6)
             .overlay(alignment: .trailing) {
-                Circle().fill(light).frame(width: 3, height: 3)
-                    .shadow(color: light, radius: 2)
+                Circle().fill(starlight).frame(width: 3, height: 3)
+                    .shadow(color: starlight, radius: 2)
             }
     }
 }
+
+private let starlight = Color(red: 1, green: 0.97, blue: 0.86)

@@ -1,4 +1,3 @@
-import PounceCore
 import SwiftUI
 
 struct RootView: View {
@@ -8,7 +7,6 @@ struct RootView: View {
     @Namespace private var namespace
 
     var body: some View {
-        @Bindable var sessions = sessions
         TabView(selection: $tab) {
             Tab("Hosts", systemImage: "server.rack", value: "hosts") {
                 NavigationStack { HostListView(namespace: namespace) }
@@ -34,12 +32,12 @@ struct RootView: View {
         }
         .fullScreenCover(isPresented: presentedBinding) {
             // falls back to the current session so the screen doesn't go blank
-            // during the dismiss animation.
+            // during the dismiss animation
             if let session = sessions.presentedSession ?? sessions.currentSession {
                 TerminalScreen(initial: session.id)
                     .navigationTransition(.zoom(sourceID: zoomSource, in: namespace))
                     // edge drags and pinches belong to the terminal (selection, zoom);
-                    // leaving is the back button.
+                    // leaving is the back button
                     .interactiveDismissDisabled()
             }
         }
@@ -48,7 +46,7 @@ struct RootView: View {
     }
 
     /// a new session zooms out of its host's row; returning to one zooms
-    /// out of the bottom bar.
+    /// out of the bottom bar
     private var zoomSource: String {
         guard let session = sessions.presentedSession, session.state == .connecting, sessions.sessions.count == 1 else {
             return "sessions"
@@ -56,8 +54,6 @@ struct RootView: View {
         return "host-\(session.host.id)"
     }
 
-    /// stays up while sessions are switched or closed; only goes away when
-    /// nothing is presented.
     private var presentedBinding: Binding<Bool> {
         Binding(get: { sessions.presented != nil }, set: { if !$0 { sessions.presented = nil } })
     }

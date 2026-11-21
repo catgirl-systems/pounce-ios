@@ -39,10 +39,7 @@ struct HostListView: View {
                         connectQuick(quick)
                     } label: {
                         Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Connect to \(quick.description)").font(.body.weight(.medium))
-                                Text("Quick connect, without saving").font(.caption).foregroundStyle(.secondary)
-                            }
+                            Text("Connect to \(quick.description)").font(.body.weight(.medium))
                         } icon: {
                             Image(systemName: "bolt.fill").foregroundStyle(.tint)
                         }
@@ -70,7 +67,7 @@ struct HostListView: View {
                 } description: {
                     Text("Add a host, paste your ~/.ssh/config, or type user@host in search to connect right away.")
                 } actions: {
-                    Button("Add Host") { editing = Host(hostname: "", username: "") }
+                    Button("Add Host", action: addHost)
                         .buttonStyle(.glassProminent)
                     Button("Import SSH Config") { importing = true }
                 }
@@ -100,12 +97,12 @@ struct HostListView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button("New Host", systemImage: "plus") { editing = Host(hostname: "", username: "") }
+                    Button("New Host", systemImage: "plus", action: addHost)
                     Button("Import SSH Config", systemImage: "doc.text") { importing = true }
                 } label: {
                     Label("Add", systemImage: "plus")
                 } primaryAction: {
-                    editing = Host(hostname: "", username: "")
+                    addHost()
                 }
             }
         }
@@ -124,14 +121,14 @@ struct HostListView: View {
             Text("Its saved password and tunnels are deleted too.")
         }
         // the filter menu goes away with the last tag, which would leave the
-        // list stuck on a tag nothing has.
+        // list stuck on a tag nothing has
         .onChange(of: tags) {
             if let tag, !tags.contains(tag) { self.tag = nil }
         }
         .sensoryFeedback(.selection, trigger: tag)
     }
 
-    @ViewBuilder private func rows(_ hosts: [Host]) -> some View {
+    private func rows(_ hosts: [Host]) -> some View {
         ForEach(hosts) { host in
             Button {
                 sessions.open(host)
@@ -141,7 +138,7 @@ struct HostListView: View {
             .buttonStyle(CrouchButtonStyle())
             .matchedTransitionSource(id: "host-\(host.id)", in: namespace)
             .swipeActions(edge: .trailing) {
-                // not the destructive role, which takes the row away before the answer.
+                // not the destructive role, which takes the row away before the answer
                 Button("Delete", systemImage: "trash") { deleting = host }
                     .tint(.red)
                 Button("Edit", systemImage: "pencil") { editing = host }
@@ -172,8 +169,6 @@ struct HostListView: View {
         }
     }
 
-    // MARK: filtering
-
     private func sections() -> (all: [Host], favorites: [Host], recents: [Host]) {
         let query = search.trimmingCharacters(in: .whitespaces).lowercased()
         let all = app.hosts
@@ -190,12 +185,13 @@ struct HostListView: View {
         return (all, all.filter(\.isFavorite), Array(recents.prefix(3)))
     }
 
-    /// a search shaped like `user@host[:port]` offers a direct connect.
     private var quickConnect: SSHEndpoint? {
         let text = search.trimmingCharacters(in: .whitespaces)
         guard text.contains("@") || text.hasPrefix("ssh ") else { return nil }
         return QuickConnect.parse(text)
     }
+
+    private func addHost() { editing = Host(hostname: "", username: "") }
 
     private func connectQuick(_ endpoint: SSHEndpoint) {
         sessions.open(Host(endpoint: endpoint))

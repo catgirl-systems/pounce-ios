@@ -2,7 +2,7 @@ import PounceCore
 import SwiftUI
 
 extension View {
-    /// only one place in the hierarchy should be active at a time.
+    /// only one place in the hierarchy should be active at a time
     func prompts(active: Bool) -> some View { modifier(PromptPresenter(active: active)) }
 }
 
@@ -17,27 +17,25 @@ private struct PromptPresenter: ViewModifier {
             }
             .alert(passwordTitle, isPresented: passwordPresented) {
                 PasswordAlert()
-            } message: {
-                Text("The server asked for a password.")
             }
     }
 
     private var hostKeyPrompt: Binding<PromptCenter.Prompt?> {
         Binding(
             get: {
-                guard active, let current = prompts.current, case .hostKey = current.kind else { return nil }
-                return current
+                guard active, case .hostKey = prompts.current?.kind else { return nil }
+                return prompts.current
             },
             set: { new in
-                // swiping the sheet away counts as "don't trust".
-                if new == nil, let current = prompts.current, case .hostKey = current.kind { prompts.answer(.reject) }
+                // swiping the sheet away counts as "don't trust"
+                if new == nil, case .hostKey = prompts.current?.kind { prompts.answer(.reject) }
             })
     }
 
     private var passwordPresented: Binding<Bool> {
         Binding(
             get: {
-                guard active, let current = prompts.current, case .password = current.kind else { return false }
+                guard active, case .password = prompts.current?.kind else { return false }
                 return true
             },
             set: { _ in })
@@ -49,12 +47,12 @@ private struct PromptPresenter: ViewModifier {
     }
 }
 
-struct HostKeySheet: View {
+private struct HostKeySheet: View {
     let prompt: PromptCenter.Prompt
     @Environment(PromptCenter.self) private var prompts
     @State private var confirmReplace = false
     @State private var appeared = false
-    /// measured so a new host's sheet opens just tall enough.
+    /// measured so a new host's sheet opens just tall enough
     @State private var contentHeight: CGFloat = 520
 
     var body: some View {
@@ -102,7 +100,7 @@ struct HostKeySheet: View {
                 }
             }
             .interactiveDismissDisabled(previous != nil)
-            // 64 pt of room for the navigation bar above the content.
+            // 64 pt of room for the navigation bar above the content
             .presentationDetents(previous == nil ? [.height(contentHeight + 64), .large] : [.large])
         }
     }
@@ -153,13 +151,13 @@ struct HostKeySheet: View {
             }
         }
         .padding(.top, 4)
-        // the prompt never changes while its sheet is up; appearing is the trigger.
+        // the prompt never changes while its sheet is up; appearing is the trigger
         .onAppear { appeared = true }
         .sensoryFeedback(changed ? .warning : .selection, trigger: appeared)
     }
 }
 
-struct PasswordAlert: View {
+private struct PasswordAlert: View {
     @Environment(PromptCenter.self) private var prompts
     @State private var password = ""
     @AppStorage("savePasswords") private var save = true

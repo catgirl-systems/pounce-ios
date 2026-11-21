@@ -53,8 +53,8 @@ struct TunnelListView: View {
                             + (app.hosts.isEmpty ? " Add a host first." : "")
                     )
                 } actions: {
-                    if let host = app.hosts.first {
-                        Button("Add Tunnel") { editing = newTunnel(on: host) }
+                    if !app.hosts.isEmpty {
+                        Button("Add Tunnel", action: addTunnel)
                             .buttonStyle(.glassProminent)
                     }
                 }
@@ -63,17 +63,16 @@ struct TunnelListView: View {
         .navigationTitle("Tunnels")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Add", systemImage: "plus") {
-                    if let host = app.hosts.first { editing = newTunnel(on: host) }
-                }
-                .disabled(app.hosts.isEmpty)
+                Button("Add", systemImage: "plus", action: addTunnel)
+                    .disabled(app.hosts.isEmpty)
             }
         }
         .sheet(item: $editing) { TunnelEditor(tunnel: $0) }
     }
 
-    private func newTunnel(on host: Host) -> Tunnel {
-        Tunnel(hostID: host.id, kind: .local, bindPort: 8080, targetHost: "localhost", targetPort: 80)
+    private func addTunnel() {
+        guard let host = app.hosts.first else { return }
+        editing = Tunnel(hostID: host.id, kind: .local, bindPort: 8080, targetHost: "localhost", targetPort: 80)
     }
 }
 
@@ -174,6 +173,10 @@ private struct TrafficLine: View {
             }
         }
     }
+}
+
+extension Int {
+    fileprivate var byteCount: String { ByteCountFormatter.string(fromByteCount: Int64(self), countStyle: .binary) }
 }
 
 private struct FlowDots: View {

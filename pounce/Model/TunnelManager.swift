@@ -3,7 +3,7 @@ import Observation
 import PounceCore
 
 /// tunnels on the same host share one connection, which closes when the last
-/// of them stops.
+/// of them stops
 @MainActor @Observable final class TunnelManager {
     enum Status: Equatable {
         case starting
@@ -16,10 +16,8 @@ import PounceCore
     @ObservationIgnored private var connections: [Host.ID: SSHConnection] = [:]
     @ObservationIgnored private var pending: [Host.ID: Task<SSHConnection, any Error>] = [:]
     @ObservationIgnored private var starts: [Tunnel.ID: Task<Void, Never>] = [:]
-    /// tunnels that were running when their connection dropped.
+    /// tunnels that were running when their connection dropped
     @ObservationIgnored private var dropped: Set<Tunnel.ID> = []
-
-    var hasRunning: Bool { runningCount > 0 }
 
     var runningCount: Int { status.values.filter { if case .running = $0 { true } else { false } }.count }
 
@@ -49,7 +47,7 @@ import PounceCore
                     case .dynamic:
                         try await connection.startDynamicForward(bindPort: tunnel.bindPort)
                     }
-                // `stop` ran before the connection was there to close.
+                // `stop` ran before the connection was there to close
                 guard !Task.isCancelled else {
                     forward.close()
                     closeIdleConnection(for: tunnel.hostID)
@@ -61,7 +59,7 @@ import PounceCore
                 guard !Task.isCancelled else { return closeIdleConnection(for: tunnel.hostID) }
                 status[tunnel.id] = .failed(
                     (error as? SSHError) == .hostKeyRejected && !interactive
-                        ? "Connect to \(host.displayName) in pounce once to trust its host key."
+                        ? host.untrustedKeyHint
                         : error.localizedDescription)
                 closeIdleConnection(for: tunnel.hostID)
             }
@@ -103,7 +101,7 @@ import PounceCore
         return connection
     }
 
-    /// marks a host's tunnels as failed when its connection drops.
+    /// marks a host's tunnels as failed when its connection drops
     private func watch(_ connection: SSHConnection, host: Host.ID) {
         Task {
             await connection.waitUntilClosed()

@@ -6,7 +6,10 @@ This is [migueldeicaza/SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) at
 
 - Docs, tests, benchmarks and the example and tool targets.
 - The `SwiftTermBuildInfoPlugin` build plugin, which needs Xcode's plugin trust prompt. `SwiftTermBuildInfo.swift` is a static stand-in with the same API.
-- `Apple/Metal/Shaders.metal`, so no resource bundle is built. The Metal renderer is opt-in (`setUseMetal(_:)`) and pounce never enables it, so terminals draw with CoreText.
+- The opt-in Metal renderer (`Apple/Metal/` and its `canImport(MetalKit)` paths in the views), which pounce never enabled, so terminals draw with CoreText as before and MetalKit isn't linked.
+- The macOS views in `Mac/` (except `MacAccessibilityService.swift`, which iOS uses), so the package builds for iOS only.
+- `TerminalAccessory`, `KeyboardView` and `DoubleButton`, since pounce brings its own key bar; `inputAccessoryView` now starts as nil.
+- Search (`Search*.swift`, `TerminalViewSearch.swift`), which pounce never calls.
 - The `swift-argument-parser` and `swift-docc-plugin` dependencies, which only served the removed targets.
 
 ## What was patched

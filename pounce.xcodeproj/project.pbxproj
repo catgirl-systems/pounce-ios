@@ -330,7 +330,7 @@
 				STRIP_INSTALLED_PRODUCT = YES;
 				STRIP_STYLE = all;
 				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_OPTIMIZATION_LEVEL = "-Osize";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;

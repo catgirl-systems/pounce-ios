@@ -1,7 +1,7 @@
 import Foundation
 
 /// minimal der reader for pkcs#1, sec1 and pkcs#8 keys: single-byte tags and
-/// definite lengths only, which is all der allows for these structures.
+/// definite lengths only, which is all der allows for these structures
 struct DERReader {
     static let integer: UInt8 = 0x02
     static let bitString: UInt8 = 0x03
@@ -23,7 +23,7 @@ struct DERReader {
         offset += 2
         if length & 0x80 != 0 {
             let lengthBytes = length & 0x7F
-            // four length bytes already cover 4 gib; anything longer is garbage.
+            // four length bytes already cover 4 gib, anything longer is garbage
             guard (1...4).contains(lengthBytes), bytes.count - offset >= lengthBytes else { throw .malformed }
             length = bytes[offset..<offset + lengthBytes].reduce(0) { ($0 << 8) | Int($1) }
             offset += lengthBytes
@@ -33,7 +33,7 @@ struct DERReader {
         return (tag, Array(bytes[offset..<offset + length]))
     }
 
-    /// fields of `SEQUENCE { version INTEGER, ... }`, positioned after the version.
+    /// fields of `SEQUENCE { version INTEGER, ... }`, positioned after the version
     static func versionedSequence(_ der: [UInt8]) throws(KeyError) -> DERReader {
         var outer = DERReader(der)
         var fields = DERReader(try outer.read(sequence))
@@ -47,7 +47,6 @@ struct DERReader {
         return element.content
     }
 
-    /// non-negative `INTEGER` as an unsigned magnitude without leading zeros.
     mutating func readUnsignedInteger() throws(KeyError) -> [UInt8] {
         let content = try read(Self.integer)
         guard let first = content.first, first & 0x80 == 0 else { throw .malformed }
@@ -55,7 +54,6 @@ struct DERReader {
     }
 }
 
-/// just enough der to rebuild a pkcs#1 `RSAPrivateKey`.
 enum DERWriter {
     static func element(_ tag: UInt8, _ content: [UInt8]) -> [UInt8] {
         var out: [UInt8] = [tag]
@@ -69,9 +67,10 @@ enum DERWriter {
     }
 
     static func unsignedInteger(_ magnitude: [UInt8]) -> [UInt8] {
-        // der encodes zero as a single 0x00 byte.
-        let value = magnitude.signPadded
-        return element(DERReader.integer, value.isEmpty ? [0] : value)
+        let value = magnitude.trimmingLeadingZeros
+        // der adds a 0x00 sign byte when the top bit is set, and encodes zero as a single 0x00 byte
+        let padded = value.first.map { $0 & 0x80 != 0 } ?? false ? [0] + value : value
+        return element(DERReader.integer, padded.isEmpty ? [0] : padded)
     }
 
     static func sequence(_ elements: [[UInt8]]) -> [UInt8] {
@@ -79,8 +78,8 @@ enum DERWriter {
     }
 }
 
-/// minimal bigint math for the rsa crt exponents (d mod (p-1), d mod (q-1)) that
-/// openssh-key-v1 omits but pkcs#1 requires. values are big-endian magnitudes.
+/// big-endian magnitudes, just enough math for the rsa crt exponents (d mod (p-1),
+/// d mod (q-1)) that openssh-key-v1 omits but pkcs#1 requires
 enum BigUInt {
     static func decremented(_ value: [UInt8]) -> [UInt8]? {
         var result = value
@@ -97,11 +96,11 @@ enum BigUInt {
     }
 
     /// binary long division, one bit at a time: slow in theory, but only a few hundred
-    /// thousand limb operations for a 4096-bit exponent.
+    /// thousand limb operations for a 4096-bit exponent
     static func remainder(_ value: [UInt8], _ modulus: [UInt8]) -> [UInt8]? {
         let m = limbs(modulus)
         guard m.contains(where: { $0 != 0 }) else { return nil }
-        // one spare limb holds the bit shifted out before the comparison.
+        // one spare limb holds the bit shifted out before the comparison
         var r = [UInt32](repeating: 0, count: m.count + 1)
         let mExtended = m + [0]
         for byte in value {
@@ -118,7 +117,7 @@ enum BigUInt {
         return r.reversed().flatMap(\.bigEndianBytes).trimmingLeadingZeros
     }
 
-    /// little-endian 32-bit limbs.
+    /// little-endian 32-bit limbs
     private static func limbs(_ bytes: [UInt8]) -> [UInt32] {
         var result: [UInt32] = []
         var index = bytes.count

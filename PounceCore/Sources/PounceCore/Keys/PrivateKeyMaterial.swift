@@ -3,9 +3,8 @@ import Foundation
 import NIOSSH
 import Security
 
-/// `data` is the ed25519 seed, the fixed-width ecdsa scalar, a pkcs#1 rsa der, or
-/// for `.secureEnclaveP256` an opaque `dataRepresentation` handle that only this
-/// device's secure enclave can use.
+/// `data` is the ed25519 seed, the fixed-width ecdsa scalar, a pkcs#1 rsa der, or for
+/// `.secureEnclaveP256` an opaque `dataRepresentation` that only this device's enclave can use
 public struct PrivateKeyMaterial: Sendable, Hashable, Codable {
     public var kind: KeyKind
     public var data: Data
@@ -31,7 +30,14 @@ public struct PrivateKeyMaterial: Sendable, Hashable, Codable {
         case .ecdsaP256: return try NIOSSHPrivateKey(p256Key: keyAttempt { try .init(rawRepresentation: data) })
         case .ecdsaP384: return try NIOSSHPrivateKey(p384Key: keyAttempt { try .init(rawRepresentation: data) })
         case .ecdsaP521: return try NIOSSHPrivateKey(p521Key: keyAttempt { try .init(rawRepresentation: data) })
-        case .rsa: return try keyAttempt { try NIOSSHPrivateKey(rsaKey: rsaSecKey()) }
+        case .rsa:
+            let attributes: [CFString: Any] = [
+                kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+            ]
+            guard let key = SecKeyCreateWithData(data as CFData, attributes as CFDictionary, nil) else {
+                throw .malformed
+            }
+            return try keyAttempt { try NIOSSHPrivateKey(rsaKey: key) }
         case .secureEnclaveP256:
             guard SecureEnclave.isAvailable else { throw .secureEnclaveUnavailable }
             do {
@@ -42,31 +48,12 @@ public struct PrivateKeyMaterial: Sendable, Hashable, Codable {
         }
     }
 
-    /// for `SecKeyCreateSignature` with rsa-sha2-256/512. only valid for `.rsa`.
-    public func rsaSecKey() throws(KeyError) -> SecKey {
-        guard kind == .rsa else { throw .wrongKeyKind }
-        return try Self.makeRSAKey(pkcs1: data)
-    }
-
-    static func makeRSAKey(pkcs1: Data) throws(KeyError) -> SecKey {
-        let attributes: [CFString: Any] = [
-            kSecAttrKeyType: kSecAttrKeyTypeRSA,
-            kSecAttrKeyClass: kSecAttrKeyClassPrivate,
-        ]
-        var error: Unmanaged<CFError>?
-        guard let key = SecKeyCreateWithData(pkcs1 as CFData, attributes as CFDictionary, &error) else {
-            error?.release()
-            throw .malformed
-        }
-        return key
-    }
-
     public static func generateEd25519(comment: String) -> PrivateKeyMaterial {
         PrivateKeyMaterial(kind: .ed25519, data: Curve25519.Signing.PrivateKey().rawRepresentation, comment: comment)
     }
 
-    /// signing always needs the device unlocked, and with `requireBiometry` a face id /
-    /// touch id match against current enrolment (re-enrolling invalidates the key).
+    /// signing always needs the device unlocked, and with `requireBiometry` a face id or
+    /// touch id match against current enrolment (re-enrolling invalidates the key)
     public static func generateSecureEnclaveP256(comment: String, requireBiometry: Bool) throws(KeyError)
         -> PrivateKeyMaterial
     {

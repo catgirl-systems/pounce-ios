@@ -1,11 +1,10 @@
 import CryptoKit
 import Foundation
 
-/// openbsd `bcrypt_pbkdf`, for encrypted openssh-key-v1 files. output bytes are
-/// interleaved across blocks, not concatenated, so each depends on every round.
-/// raw buffers in the hot path: 16 rounds already mean millions of blowfish encryptions.
+/// openbsd `bcrypt_pbkdf` for encrypted openssh-key-v1 files. output bytes are
+/// interleaved across blocks, not concatenated, so each depends on every round
 enum BcryptPBKDF {
-    /// mirrors the reference implementation's limits.
+    /// mirrors the reference implementation's limits
     static func deriveKey(password: [UInt8], salt: [UInt8], rounds: Int, keyLength: Int) throws(KeyError) -> [UInt8] {
         let hashSize = 32
         guard rounds >= 1, !password.isEmpty, !salt.isEmpty, keyLength > 0, keyLength <= hashSize * hashSize,
@@ -25,7 +24,6 @@ enum BcryptPBKDF {
             var tmpout = workspace.hash(sha2pass: sha2pass, sha2salt: sha2salt)
             var out = tmpout
             for _ in 1..<rounds {
-                // later rounds salt with the previous round's output.
                 sha2salt = Array(SHA512.hash(data: tmpout))
                 tmpout = workspace.hash(sha2pass: sha2pass, sha2salt: sha2salt)
                 for j in 0..<hashSize { out[j] ^= tmpout[j] }
@@ -45,15 +43,16 @@ enum BcryptPBKDF {
         return key
     }
 
-    /// one manually managed buffer so the inner loops skip refcounting and bounds checks.
+    /// one raw buffer so the hot loops skip refcounting and bounds checks: 16 rounds
+    /// already mean millions of blowfish encryptions
     private final class Workspace {
-        /// p-array (18 words) followed by the four s-boxes (4 × 256 words).
+        /// p-array (18 words) followed by the four s-boxes (4 × 256 words)
         private let state = UnsafeMutablePointer<UInt32>.allocate(capacity: 18 + 1024)
 
         deinit { state.deallocate() }
 
         /// `bcrypt_hash`: key schedule keyed by both inputs, then 64 encryptions of
-        /// `"OxychromaticBlowfishSwatDynamite"`.
+        /// `"OxychromaticBlowfishSwatDynamite"`
         func hash(sha2pass: [UInt8], sha2salt: [UInt8]) -> [UInt8] {
             BcryptPBKDF.initialState.withUnsafeBufferPointer { initial in
                 if let base = initial.baseAddress { state.update(from: base, count: 18 + 1024) }
@@ -84,11 +83,11 @@ enum BcryptPBKDF {
                     i += 2
                 }
             }
-            // the reference copies the words out little-endian.
+            // the reference copies the words out little-endian
             return cdata.flatMap { withUnsafeBytes(of: $0.littleEndian, Array.init) }
         }
 
-        /// next big-endian word from `data`, wrapping around at the end.
+        /// next big-endian word from `data`, wrapping around at the end
         @inline(__always)
         private static func streamToWord(_ data: UnsafeBufferPointer<UInt8>, _ j: inout Int) -> UInt32 {
             var word: UInt32 = 0
@@ -122,7 +121,7 @@ enum BcryptPBKDF {
             right = xl
         }
 
-        /// `Blowfish_expandstate`: bcrypt's salted key schedule.
+        /// `Blowfish_expandstate`: bcrypt's salted key schedule
         private func expandState(data: UnsafeBufferPointer<UInt8>, key: UnsafeBufferPointer<UInt8>) {
             var j = 0
             for i in 0..<18 { state[i] ^= Self.streamToWord(key, &j) }
@@ -140,7 +139,7 @@ enum BcryptPBKDF {
             }
         }
 
-        /// `Blowfish_expand0state`: the unsalted key schedule.
+        /// `Blowfish_expand0state`: the unsalted key schedule
         private func expand0State(key: UnsafeBufferPointer<UInt8>) {
             var j = 0
             for i in 0..<18 { state[i] ^= Self.streamToWord(key, &j) }
@@ -157,7 +156,7 @@ enum BcryptPBKDF {
     }
 
     /// blowfish's initial p-array and s-boxes: the first 1042 32-bit words of the
-    /// fractional part of pi.
+    /// fractional part of pi
     private static let initialState: [UInt32] = [
         0x243F_6A88, 0x85A3_08D3, 0x1319_8A2E, 0x0370_7344, 0xA409_3822, 0x299F_31D0,
         0x082E_FA98, 0xEC4E_6C89, 0x4528_21E6, 0x38D0_1377, 0xBE54_66CF, 0x34E9_0C6C,

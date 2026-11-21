@@ -4,7 +4,6 @@ import SwiftUI
 struct PounceApp: App {
     @State private var app = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("accentHex") private var accentHex = Accent.defaultHex
     @State private var cover = CoverWindow()
 
     private var lock: AppLock { app.lock }
@@ -16,12 +15,12 @@ struct PounceApp: App {
                 .environment(app.sessions)
                 .environment(app.tunnels)
                 .environment(app.prompts)
-                .tint(Accent.color(hex: accentHex))
-                // hides terminal contents in the app switcher and while locked.
+                .accentTint()
+                // hides terminal contents in the app switcher and while locked
                 .onChange(of: [scenePhase != .active, lock.isLocked], initial: true) {
                     cover.update(covered: scenePhase != .active || lock.isLocked, lock: lock)
                 }
-                // tapping the live activity comes back to the last session.
+                // tapping the live activity comes back to the last session
                 .onOpenURL { url in
                     guard url.scheme == "pounce", url.host() == "sessions", let session = app.sessions.currentSession
                     else { return }
@@ -42,7 +41,7 @@ struct PounceApp: App {
     }
 }
 
-/// locks at launch and after a minute in the background.
+/// locks at launch and after a minute in the background
 @MainActor @Observable final class AppLock {
     private(set) var isLocked: Bool
     @ObservationIgnored private var backgroundedAt: Date?
@@ -52,8 +51,7 @@ struct PounceApp: App {
 
     init() { isLocked = Self.isEnabled }
 
-    /// also true while in the background past the grace period, before
-    /// `unlockIfNeeded` has had a chance to lock.
+    /// also true in the background past the grace period, before `unlockIfNeeded` locks
     var needsUnlock: Bool {
         guard Self.isEnabled else { return false }
         if let since = backgroundedAt, Date.now.timeIntervalSince(since) > 60 { return true }
@@ -71,7 +69,7 @@ struct PounceApp: App {
         Task { await unlock() }
     }
 
-    /// shares one prompt between the lock screen and shortcuts waiting on it.
+    /// shares one prompt between the lock screen and shortcuts waiting on it
     @discardableResult
     func unlock() async -> Bool {
         if needsUnlock { isLocked = true }
@@ -86,7 +84,7 @@ struct PounceApp: App {
 }
 
 /// the privacy cover gets a window of its own: an overlay on the root view
-/// would sit under the terminal's full screen cover and under every sheet.
+/// would sit under the terminal's full screen cover and under every sheet
 @MainActor final class CoverWindow {
     private var window: UIWindow?
     private var covered = false
@@ -95,7 +93,7 @@ struct PounceApp: App {
         self.covered = covered
         guard covered else { return hide() }
         guard let window = window ?? makeWindow(lock: lock) else {
-            // no scene yet at launch; it's there a turn later.
+            // no scene yet at launch; it's there a turn later
             Task { if self.covered, self.window == nil { self.update(covered: true, lock: lock) } }
             return
         }
@@ -105,8 +103,7 @@ struct PounceApp: App {
             window.isHidden = false
             return
         }
-        // the keyboard's window sits above this one, so whatever is being typed
-        // into has to let go of it.
+        // the keyboard's window sits above this one, so whatever has focus must let go
         for other in window.windowScene?.windows ?? [] where other !== window { other.endEditing(true) }
         window.makeKeyAndVisible()
     }
@@ -137,7 +134,6 @@ struct PounceApp: App {
 
 private struct PrivacyCover: View {
     let lock: AppLock
-    @AppStorage("accentHex") private var accentHex = Accent.defaultHex
 
     var body: some View {
         ZStack {
@@ -155,6 +151,6 @@ private struct PrivacyCover: View {
             }
         }
         .ignoresSafeArea()
-        .tint(Accent.color(hex: accentHex))
+        .accentTint()
     }
 }

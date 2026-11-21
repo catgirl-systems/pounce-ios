@@ -1,12 +1,12 @@
 import LocalAuthentication
 
-/// names the device's biometry for ui text, or the passcode when there's none.
+/// names the device's biometry for ui text, or the passcode when there's none
 enum Biometry {
     case faceID, touchID, opticID, passcode
 
     static let current: Biometry = {
         let context = LAContext()
-        // fills in `biometryType`, even when nothing is enrolled yet.
+        // fills in `biometryType`, even when nothing is enrolled yet
         _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
         return switch context.biometryType {
         case .faceID: .faceID

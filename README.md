@@ -1,6 +1,6 @@
 # pounce
 
-small native ssh client for ios. keys stay on device.
+a small native ssh client for ios that keeps your keys on the device.
 
 <p>
   <img src="screenshots/hosts.png" width="24%">

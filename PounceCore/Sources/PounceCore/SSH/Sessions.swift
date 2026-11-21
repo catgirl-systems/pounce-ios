@@ -5,7 +5,7 @@ import Synchronization
 
 public final class SSHShell: Sendable {
     let channel: any Channel
-    /// ends when the shell exits or the connection drops.
+    /// ends when the shell exits or the connection drops
     public let output: AsyncStream<[UInt8]>
     private let status: LockedBox<Int>
 
@@ -59,12 +59,12 @@ extension SSHConnection {
     }
 
     /// `input` goes to the command's stdin, followed by eof; without it stdin
-    /// is closed straight away so commands that read it don't hang.
+    /// is closed straight away so commands that read it don't hang
     public func run(
         _ command: String, input: Data = Data(), timeout: Duration? = nil
     ) async throws(SSHError) -> SSHCommandResult {
         let result = Mutex(SSHCommandResult(stdout: Data(), stderr: Data(), exitStatus: nil))
-        let done = eventLoop.makePromise(of: Bool.self)
+        let done = self.channel.eventLoop.makePromise(of: Bool.self)
         let channel: any Channel
         do {
             channel = try await openChildChannel(type: .session) { child in
@@ -78,16 +78,14 @@ extension SSHConnection {
                         onClose: { done.succeed(false) }))
             }
         } catch {
-            // nio traps on a promise dropped without an answer.
+            // nio traps on a promise dropped without an answer
             done.fail(error)
             throw error
         }
         // the close only completes once the server reports the command gone,
-        // which a stuck command never does, so a timeout doesn't wait for it.
+        // which a stuck command never does, so a timeout doesn't wait for it
         let timer = timeout.map { timeout in
-            let (seconds, attoseconds) = timeout.components
-            let nanoseconds = seconds * 1_000_000_000 + attoseconds / 1_000_000_000
-            return channel.eventLoop.scheduleTask(in: .nanoseconds(nanoseconds)) {
+            channel.eventLoop.scheduleTask(in: TimeAmount(timeout)) {
                 channel.close(promise: nil)
                 done.succeed(true)
             }
@@ -100,14 +98,14 @@ extension SSHConnection {
         }
         timer?.cancel()
         // cancelling closes the channel, which would pass for a normal end
-        // with half the output.
+        // with half the output
         if Task.isCancelled { throw .cancelled }
         if timedOut { throw .timedOut }
         return result.withLock { $0 }
     }
 }
 
-/// sends the session's requests once the channel opens.
+/// sends the session's requests once the channel opens
 final class SessionHandler: ChannelDuplexHandler {
     typealias InboundIn = SSHChannelData
     typealias OutboundIn = SSHChannelData
@@ -135,7 +133,7 @@ final class SessionHandler: ChannelDuplexHandler {
         self.requests = requests
         self.input = input
         self.onData = onData
-        // a pty merges stderr into its output; commands keep it apart.
+        // a pty merges stderr into its output; commands keep it apart
         self.onError = onError ?? onData
         self.onExit = onExit
         self.onClose = onClose
@@ -143,7 +141,7 @@ final class SessionHandler: ChannelDuplexHandler {
 
     func handlerAdded(context: ChannelHandlerContext) {
         // half-closure keeps the channel readable after the server's eof, until
-        // the exit status arrives.
+        // the exit status arrives
         context.channel.setOption(ChannelOptions.allowRemoteHalfClosure, value: true).whenFailure { _ in }
     }
 
@@ -174,7 +172,7 @@ final class SessionHandler: ChannelDuplexHandler {
         case let status as SSHChannelRequestEvent.ExitStatus:
             onExit(status.exitStatus)
         case is ChannelSuccessEvent:
-            // the server may drop data sent before it has started the command.
+            // the server may drop data sent before it has started the command
             guard let input else { return }
             if input.readableBytes > 0 {
                 context.write(wrapOutboundOut(SSHChannelData(type: .channel, data: .byteBuffer(input))), promise: nil)
@@ -182,7 +180,6 @@ final class SessionHandler: ChannelDuplexHandler {
             context.flush()
             context.close(mode: .output, promise: nil)
         case is ChannelFailureEvent:
-            // the server refused the shell or command.
             context.close(promise: nil)
         default:
             context.fireUserInboundEventTriggered(event)

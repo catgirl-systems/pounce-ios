@@ -1,7 +1,6 @@
 import Foundation
 
-/// a device in the sync account. `meta` is plaintext json the server can read,
-/// so it only ever holds a short device name.
+/// `meta` is plaintext json the server can read, so it only ever holds a short device name
 public struct RosterDevice: Codable, Hashable, Identifiable, Sendable {
     public var id: Data
     public var signPub: Data
@@ -9,9 +8,7 @@ public struct RosterDevice: Codable, Hashable, Identifiable, Sendable {
     public var meta: Data
     public var active: Bool
 
-    public var name: String {
-        (try? JSONDecoder().decode(DeviceMeta.self, from: meta))?.name ?? "Device"
-    }
+    public var name: String { DeviceMeta.name(meta) }
 }
 
 struct DeviceMeta: Codable {
@@ -21,20 +18,24 @@ struct DeviceMeta: Codable {
         let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
         return (try? JSONEncoder().encode(DeviceMeta(name: trimmed.isEmpty ? "Device" : trimmed))) ?? Data()
     }
+
+    static func name(_ meta: Data) -> String {
+        (try? JSONDecoder().decode(DeviceMeta.self, from: meta))?.name ?? "Device"
+    }
 }
 
-/// the verified roster: the same rules as pounce-sync's `roster.Apply`, checked
-/// again here so a dishonest server can't add a device or skip a rotation.
-public struct RosterState: Codable, Equatable, Sendable {
-    public var accountID: Data
-    public var count: UInt64 = 0
-    public var headHash = Data(count: 32)
-    public var epoch: UInt32 = 0
-    public var rotatePending = false
-    public var recoveryID = Data()
-    public var recoverySignPub = Data()
-    public var recoveryKemPub = Data()
-    public var devices: [RosterDevice] = []
+/// the same rules as pounce-sync's `roster.Apply`, checked again here so a
+/// dishonest server can't add a device or skip a rotation
+struct RosterState: Codable, Sendable {
+    var accountID: Data
+    var count: UInt64 = 0
+    var headHash = Data(count: 32)
+    var epoch: UInt32 = 0
+    var rotatePending = false
+    var recoveryID = Data()
+    var recoverySignPub = Data()
+    var recoveryKemPub = Data()
+    var devices: [RosterDevice] = []
 
     static let maxActive = 32
     static let maxEntries: UInt64 = 10_000
@@ -42,7 +43,7 @@ public struct RosterState: Codable, Equatable, Sendable {
 
     init(accountID: Data) { self.accountID = accountID }
 
-    public var activeDevices: [RosterDevice] { devices.filter(\.active) }
+    var activeDevices: [RosterDevice] { devices.filter(\.active) }
 
     func device(_ id: Data) -> RosterDevice? { devices.first { $0.id == id } }
 
@@ -63,6 +64,17 @@ public struct RosterState: Codable, Equatable, Sendable {
         var signPub: Data
         var kemPub: Data
         var meta: Data
+
+        static func read(_ reader: inout SSHReader) throws(KeyError) -> NewDevice {
+            NewDevice(
+                id: Data(try reader.readString()), signPub: Data(try reader.readString()),
+                kemPub: Data(try reader.readString()), meta: Data(try reader.readString()))
+        }
+
+        var isValid: Bool {
+            id.count == 16 && SyncCrypto.signingKey(signPub) != nil && SyncCrypto.agreementKey(kemPub) != nil
+                && meta.count <= 1024
+        }
     }
 
     struct Entry {
@@ -74,9 +86,7 @@ public struct RosterState: Codable, Equatable, Sendable {
         var recovery: (id: Data, signPub: Data, kemPub: Data)?
     }
 
-    // MARK: building
-
-    /// the body of the next entry; `apply` it with its signature to advance.
+    /// the body of the next entry; `apply` it with its signature to advance
     func body(_ entry: Entry) -> Data {
         var fields: [WireField] = [
             .text(Self.label), .bytes(accountID), .u64(count), .bytes(count == 0 ? Data(count: 32) : headHash),
@@ -94,8 +104,6 @@ public struct RosterState: Codable, Equatable, Sendable {
         return SyncCrypto.message(fields)
     }
 
-    // MARK: verifying
-
     private static func parse(_ body: Data) throws(SyncError) -> (account: Data, index: UInt64, prev: Data, Entry) {
         var reader = SSHReader([UInt8](body))
         do {
@@ -108,7 +116,7 @@ public struct RosterState: Codable, Equatable, Sendable {
             var entry = Entry(action: action, signerID: Data())
             switch action {
             case .genesis, .addDevice, .recover:
-                entry.device = NewDevice(id: try bytes(), signPub: try bytes(), kemPub: try bytes(), meta: try bytes())
+                entry.device = try NewDevice.read(&reader)
                 if action == .genesis { entry.recovery = (try bytes(), try bytes(), try bytes()) }
             case .removeDevice: entry.target = try bytes()
             case .rotate: entry.epoch = try reader.readUInt32()
@@ -117,11 +125,7 @@ public struct RosterState: Codable, Equatable, Sendable {
             guard reader.isAtEnd, account.count == 16, prev.count == 32, entry.signerID.count == 16 else {
                 throw SyncError.rosterInvalid
             }
-            if let device = entry.device {
-                guard device.id.count == 16, SyncCrypto.signingKey(device.signPub) != nil,
-                    SyncCrypto.agreementKey(device.kemPub) != nil, device.meta.count <= 1024
-                else { throw SyncError.rosterInvalid }
-            }
+            if let device = entry.device, !device.isValid { throw SyncError.rosterInvalid }
             if let recovery = entry.recovery {
                 guard recovery.id.count == 16, SyncCrypto.signingKey(recovery.signPub) != nil,
                     SyncCrypto.agreementKey(recovery.kemPub) != nil
@@ -134,7 +138,7 @@ public struct RosterState: Codable, Equatable, Sendable {
         }
     }
 
-    /// checks every rule for appending `(body, sig)` next; on error nothing changes.
+    /// checks every rule for appending `(body, sig)` next; on error nothing changes
     @discardableResult
     mutating func apply(_ body: Data, _ sig: Data) throws(SyncError) -> Entry {
         let (account, index, prev, entry) = try Self.parse(body)

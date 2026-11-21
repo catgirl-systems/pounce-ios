@@ -3,7 +3,7 @@ import Observation
 import PounceCore
 
 /// host key and password questions, asked one at a time; the ssh handshake
-/// waits on the answer.
+/// waits on the answer
 @MainActor @Observable final class PromptCenter {
     enum Kind: Equatable {
         case hostKey(endpoint: SSHEndpoint, key: SSHPublicKey, previous: KnownHost?)

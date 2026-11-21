@@ -1,6 +1,6 @@
 import Foundation
 
-/// binary as unpadded base64url, the only form pounce-sync accepts.
+/// binary as unpadded base64url, the only form pounce-sync accepts
 struct B64: Codable, Hashable, Sendable {
     var data: Data
 
@@ -40,8 +40,7 @@ struct WireEntry: Codable, Sendable {
     var sig: B64
 }
 
-/// pounce-sync's http api. https only, except loopback so a local server can be
-/// tried from a mac.
+/// https only, except loopback so a local server can be tried from a mac
 struct SyncAPI: Sendable {
     let origin: URL
     let session: URLSession
@@ -54,7 +53,7 @@ struct SyncAPI: Sendable {
         self.session = session
     }
 
-    /// the origin exactly as the server binds it into login signatures.
+    /// the origin exactly as the server binds it into login signatures
     var originText: String {
         var text = "\(origin.scheme?.lowercased() ?? "https")://\(origin.host() ?? "")"
         if let port = origin.port { text += ":\(port)" }
@@ -91,7 +90,6 @@ struct SyncAPI: Sendable {
         }
     }
 
-    /// expects one of `ok` statuses, otherwise turns the reply into `.server`.
     private func call<Reply: Decodable>(
         _ method: String, _ path: String, token: String? = nil, headers: [String: String] = [:],
         body: (some Encodable)? = Empty?.none, ok: Set<Int> = [200], timeout: TimeInterval = 30,
@@ -111,8 +109,6 @@ struct SyncAPI: Sendable {
     private func failure(_ status: Int, _ data: Data) -> SyncError {
         .server(status: status, code: (try? JSONDecoder().decode(ErrorBody.self, from: data))?.error ?? "unknown")
     }
-
-    // MARK: accounts and sessions
 
     func createAccount(id: Data, invite: Data?, entry: Data, sig: Data, keys: [WireKey]) async throws(SyncError) {
         struct Body: Encodable {
@@ -153,8 +149,6 @@ struct SyncAPI: Sendable {
         _ = try await call("DELETE", "/v1/account", token: token, body: Body(sig: B64(sig)), ok: [204], as: Empty.self)
     }
 
-    // MARK: roster and keys
-
     func roster(token: String, from: UInt64) async throws(SyncError) -> (head: UInt64, entries: [WireEntry]) {
         struct Reply: Decodable {
             struct Item: Decodable {
@@ -173,22 +167,23 @@ struct SyncAPI: Sendable {
         return (reply.head, reply.entries.map { WireEntry(entry: $0.entry, sig: $0.sig) })
     }
 
-    /// nil when `head` is stale: someone else appended first.
+    /// false when `head` is stale: someone else appended first
     func appendRoster(token: String, head: UInt64, entries: [WireEntry], keys: [WireKey])
-        async throws(SyncError) -> UInt64?
+        async throws(SyncError) -> Bool
     {
         struct Body: Encodable {
             var entries: [WireEntry]
             var keys: [WireKey]
         }
+        // decoded only to reject a 200 or 412 body without `head`, so a generic 412 isn't retried
         struct Reply: Decodable { var head: UInt64 }
-        let (status, reply) = try await call(
+        let (status, _) = try await call(
             "POST", "/v1/roster", token: token, headers: ["If-Match": "\"\(head)\""],
             body: Body(entries: entries, keys: keys), ok: [200, 412], as: Reply.self)
-        return status == 412 ? nil : reply?.head
+        return status == 200
     }
 
-    /// nil when no key was wrapped for this device at that epoch.
+    /// nil when no key was wrapped for this device at that epoch
     func key(token: String, epoch: UInt32) async throws(SyncError) -> WireKey? {
         do {
             let (_, reply) = try await call("GET", "/v1/keys/\(epoch)", token: token, as: WireKey.self)
@@ -197,8 +192,6 @@ struct SyncAPI: Sendable {
             return nil
         }
     }
-
-    // MARK: records
 
     func changes(token: String, since: UInt64, limit: Int = 500, wait: Int = 0)
         async throws(SyncError) -> (records: [WireRecord], more: Bool, next: UInt64)
@@ -223,7 +216,7 @@ struct SyncAPI: Sendable {
 
     enum BatchResult {
         case written([WireRecord])
-        /// the writes whose revision was stale, with the record as it is now.
+        /// the writes whose revision was stale, with the record as it is now
         case stale([(id: Data, current: WireRecord?)])
     }
 
@@ -254,8 +247,6 @@ struct SyncAPI: Sendable {
             throw .malformed
         }
     }
-
-    // MARK: pairing
 
     func createPairing(token: String, authTokenHash: Data) async throws(SyncError) -> Data {
         struct Body: Encodable { var authTokenHash: B64 }

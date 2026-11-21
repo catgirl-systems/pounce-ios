@@ -3,7 +3,6 @@ import NIOCore
 import NIOSSH
 import Network
 
-/// messages are meant for people, not logs.
 public enum SSHError: Error, LocalizedError, Equatable, Sendable {
     case unreachable(String)
     case timedOut
@@ -53,7 +52,8 @@ public enum SSHError: Error, LocalizedError, Equatable, Sendable {
             }
         }
         if let error = error as? NIOSSHError {
-            return .protocolError(String(describing: error.type))
+            return error.type == .channelSetupRejected
+                ? .channelRejected : .protocolError(String(describing: error.type))
         }
         return .protocolError(error.localizedDescription)
     }

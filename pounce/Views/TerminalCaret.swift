@@ -1,37 +1,20 @@
 import SwiftTerm
 import SwiftUI
-import UIKit
 
 /// a remote program can still request another shape (vim's bar in insert
-/// mode, say), and gets it.
+/// mode, say), and gets it
 enum CaretShape: String, CaseIterable, Identifiable {
     case block, bar, underline
 
     var id: Self { self }
-
-    var label: String {
-        switch self {
-        case .block: "Block"
-        case .bar: "Bar"
-        case .underline: "Underline"
-        }
-    }
+    var label: String { rawValue.capitalized }
 }
 
 enum CaretAnimation: String, CaseIterable, Identifiable {
-    case steady
-    case blink
-    case pulse
+    case steady, blink, pulse
 
     var id: Self { self }
-
-    var label: String {
-        switch self {
-        case .steady: "Steady"
-        case .blink: "Blink"
-        case .pulse: "Pulse"
-        }
-    }
+    var label: String { rawValue.capitalized }
 }
 
 struct CaretStyle: Equatable {
@@ -48,13 +31,11 @@ struct CaretStyle: Equatable {
     }
 
     /// how long the caret stays solid after it moves, so it doesn't fade or
-    /// blink away while you type.
+    /// blink away while you type
     static let restAfterMove: TimeInterval = 0.5
 }
 
-// MARK: - caret overlay
-
-/// drawn over swiftterm's own caret, which is turned off.
+/// drawn over swiftterm's own caret, which is turned off
 @MainActor final class TerminalCaret: UIView {
     private unowned let terminal: TerminalView
     private let body = UIView()
@@ -71,6 +52,7 @@ struct CaretStyle: Equatable {
         addSubview(body)
         body.addSubview(glyph)
         glyph.textAlignment = .center
+        body.layer.cornerCurve = .continuous
         terminal.drawsCaret = false
         terminal.addSubview(self)
         terminal.caretObserver = { [weak self] in self?.update($0) }
@@ -109,9 +91,9 @@ struct CaretStyle: Equatable {
             isHidden = true
             return
         }
-        // stay on top of anything swiftterm adds (its own caret, links).
+        // stay on top of anything swiftterm adds (its own caret, links)
         if terminal.subviews.last !== self { terminal.bringSubviewToFront(self) }
-        // swiftterm reports the caret on every redraw, moved or not.
+        // swiftterm reports the caret on every redraw, moved or not
         guard new != old || isHidden else { return }
         let moved = old?.frame != frame
         let glide =
@@ -134,10 +116,9 @@ struct CaretStyle: Equatable {
         let size = frame.size
         let color = terminal.caretColor
         let shape = Self.shape(for: state.style, default: style.shape)
-        body.layer.cornerCurve = .continuous
 
         guard state.focused else {
-            // without focus, a hollow block, like most terminals.
+            // without focus, a hollow block, like most terminals
             body.frame = CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5)
             body.backgroundColor = .clear
             body.layer.borderColor = color.withAlphaComponent(0.8).cgColor
@@ -161,7 +142,7 @@ struct CaretStyle: Equatable {
             body.frame = CGRect(x: 0.5, y: size.height - height, width: size.width - 1, height: height)
             body.layer.cornerRadius = height / 2
         }
-        // in a block, the character shows through in the background colour.
+        // in a block, the character shows through in the background colour
         glyph.isHidden = shape != .block || state.character.trimmingCharacters(in: .whitespaces).isEmpty
         if !glyph.isHidden {
             glyph.text = state.character
@@ -172,7 +153,7 @@ struct CaretStyle: Equatable {
     }
 
     /// the program's decscusr style wins over the setting, except the default
-    /// (blinking block), which is what programs reset to.
+    /// (blinking block), which is what programs reset to
     private static func shape(for style: CursorStyle, default shape: CaretShape) -> CaretShape {
         switch style {
         case .blinkBlock: shape
@@ -212,9 +193,6 @@ struct CaretStyle: Equatable {
     }
 }
 
-// MARK: - preview
-
-/// driven by the clock, so it loops by itself.
 struct CaretPreview: View {
     let theme: TerminalTheme
     let style: CaretStyle
@@ -228,7 +206,7 @@ struct CaretPreview: View {
     var body: some View {
         TimelineView(.animation) { context in
             let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5)
-            // types the command for the first 2 s, then waits.
+            // types the command for the first 2 s, then waits
             let typed = min(Self.command.count, Int(max(0, t - 0.3) / 0.17))
             let lastKey = 0.3 + Double(typed) * 0.17
             let column = Self.prompt.count + typed
@@ -283,7 +261,7 @@ struct CaretPreview: View {
         case .blink:
             return idle.truncatingRemainder(dividingBy: 1.06) < 0.53 ? 1 : 0
         case .pulse:
-            // 1 → 0.15 → 1 over 1.5 s, eased.
+            // 1 → 0.15 → 1 over 1.5 s, eased
             let phase = idle.truncatingRemainder(dividingBy: 1.5) / 1.5
             return 0.15 + 0.85 * (0.5 + 0.5 * cos(phase * 2 * .pi))
         }

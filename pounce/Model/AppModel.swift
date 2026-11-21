@@ -5,9 +5,9 @@ import SwiftUI
 import Synchronization
 import os
 
-let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
+let log = Logger(category: "app")
 
-/// a singleton so app intents can reach it without a view hierarchy.
+// a singleton so app intents can reach it without a view hierarchy
 @MainActor @Observable final class AppModel {
     static let shared = AppModel()
 
@@ -20,9 +20,8 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         }
     }
     var notice: Notice?
-    /// the notice banners on screen, bottom to top; the last one shows it.
+    /// notice banners on screen, bottom to top; only the last one shows the notice
     var noticeOwners: [UUID] = []
-    /// set by the focus filter; the host list shows only what it allows.
     var focus = HostFocus()
 
     let sessions = SessionManager()
@@ -38,14 +37,14 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
 
     private init() {
         data = store.load()
-        // known hosts from before sync get their ids on load; keep them stable.
+        // known hosts from before sync get their ids on load; keep them stable
         store.save(data)
         liveActivity.watch()
         keeper.watch()
         sync.start()
         spotlight.update()
         Task {
-            // the focus may have changed while pounce wasn't running.
+            // the focus may have changed while pounce wasn't running
             guard let filter = try? await HostFocusFilter.current else { return }
             focus = HostFocus(tags: filter.tags ?? [], keepFavorites: filter.keepFavorites)
         }
@@ -60,9 +59,7 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
     func host(_ id: UUID?) -> Host? { data.hosts[id: id] }
     func identity(_ id: UUID?) -> Identity? { data.identities[id: id] }
 
-    var hasOpenConnections: Bool { !sessions.sessions.isEmpty || tunnels.hasRunning }
-
-    // MARK: - notices
+    var hasOpenConnections: Bool { !sessions.sessions.isEmpty || tunnels.runningCount > 0 }
 
     func notify(_ title: String, subtitle: String? = nil) {
         notice = Notice(title: title, subtitle: subtitle)
@@ -77,14 +74,11 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         notify(title, subtitle: subtitle)
     }
 
-    // MARK: - hosts
-
     func save(_ host: Host) { data.hosts[id: host.id] = host }
 
     func delete(_ host: Host) {
         var data = data
         data.hosts.removeAll { $0.id == host.id }
-        // hosts that jumped through it now connect directly.
         for index in data.hosts.indices { data.hosts[index].jumpHostIDs.removeAll { $0 == host.id } }
         for tunnel in data.tunnels where tunnel.hostID == host.id { tunnels.stop(tunnel) }
         data.tunnels.removeAll { $0.hostID == host.id }
@@ -93,8 +87,6 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
     }
 
     func toggleFavorite(_ host: Host) { data.hosts[id: host.id]?.isFavorite.toggle() }
-
-    func markConnected(_ host: Host) { data.hosts[id: host.id]?.lastConnected = .now }
 
     var tags: [String] { Array(Set(data.hosts.flatMap(\.tags))).sorted() }
 
@@ -106,7 +98,7 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         var byAlias: [String: UUID] = [:]
         var added: [Host] = []
         for entry in entries {
-            // match by label so re-importing updates instead of duplicating.
+            // match by label so re-importing updates instead of duplicating
             let existing = data.hosts.first { $0.label == entry.alias }
             var host =
                 existing
@@ -120,7 +112,7 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         for (index, entry) in entries.enumerated() {
             added[index].jumpHostIDs = entry.proxyJump.compactMap { spec in
                 if let id = byAlias[spec] { return id }
-                // a jump given as `user@host:port` becomes its own host.
+                // a jump given as `user@host:port` becomes its own host
                 guard let endpoint = QuickConnect.parse(spec, defaultUser: added[index].username) else { return nil }
                 let jump = Host(endpoint: endpoint)
                 added.append(jump)
@@ -142,11 +134,9 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         return entries.count
     }
 
-    // MARK: - identities
-
     func addIdentity(_ material: PrivateKeyMaterial, name: String, requireBiometry: Bool) throws -> Identity {
         let publicKey = try material.publicKey
-        // secure enclave keys enforce biometry inside the enclave instead.
+        // secure enclave keys enforce biometry inside the enclave instead
         let gated = requireBiometry && material.kind != .secureEnclaveP256
         let identity = Identity(
             name: name.isEmpty ? (material.comment.isEmpty ? publicKey.algorithm : material.comment) : name,
@@ -158,7 +148,6 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
 
     func rename(_ identity: Identity, to name: String) { data.identities[id: identity.id]?.name = name }
 
-    /// turning it on uploads the private key first, behind face id if the key needs it.
     func setSyncsKey(_ on: Bool, for identity: Identity) async {
         guard on else {
             data.identities[id: identity.id]?.syncsKey = false
@@ -167,26 +156,19 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         do {
             let reason = "Sync “\(identity.name)” to your other devices"
             let material = try await Task.detached { try Keychain.key(for: identity.id, reason: reason) }.value
-            guard let material else {
-                fail("The private key isn't on this \(Device.noun)")
-                return
-            }
-            // the switch goes first and uploads with the key (see `SyncEngine.upload`).
+            guard let material else { return fail("The private key isn't on this \(Device.noun)") }
+            // the switch goes first and uploads with the key (see `SyncEngine.upload`)
             data.identities[id: identity.id]?.syncsKey = true
-            do {
-                try await sync.uploadKey(material, identity: identity.id)
-            } catch {
-                data.identities[id: identity.id]?.syncsKey = false
-                throw error
-            }
+            try await sync.uploadKey(material, identity: identity.id)
         } catch Keychain.Failure.cancelled {
         } catch {
+            data.identities[id: identity.id]?.syncsKey = false
             fail("Couldn't sync the key", subtitle: error.localizedDescription)
         }
     }
 
-    /// a new key to install in place of one a removed device had. hosts move to
-    /// it; the old key stays until it's deleted, since it's needed to install this one.
+    /// replaces a key a removed device may have kept; hosts move to the new key, and
+    /// the old one stays until deleted since it's needed to install the new one
     func replaceKey(_ identity: Identity) throws -> Identity {
         let material = PrivateKeyMaterial.generateEd25519(comment: identity.name)
         let replacement = try addIdentity(
@@ -199,7 +181,7 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         return replacement
     }
 
-    /// marks every key synced to the account: a removed device may have kept them.
+    /// marks every key synced to the account: a removed device may have kept them
     func markSyncedSecretsExposed() {
         var data = data
         for index in data.identities.indices where data.identities[index].syncsKey {
@@ -211,13 +193,12 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
     var exposedIdentities: [Identity] { data.identities.filter { $0.exposedAt != nil } }
     var hostsWithSyncedPasswords: [Host] { data.hosts.filter(\.syncsPassword) }
 
-    /// saves to the keychain, and to the sync account when the host syncs it.
     func savePassword(_ password: String, for hostID: UUID) throws {
         try Keychain.savePassword(password, for: hostID)
         if host(hostID)?.syncsPassword == true { uploadPassword(password, for: hostID) }
     }
 
-    /// on failure the host stops syncing its password, so the switch tells the truth.
+    /// on failure the host stops syncing its password, so the switch tells the truth
     func uploadPassword(_ password: String, for hostID: UUID) {
         Task {
             do {
@@ -229,7 +210,7 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         }
     }
 
-    /// remote changes from the sync engine; returns the ids it had to skip.
+    /// applies remote changes from the sync engine; returns the ids it had to skip
     func applySync(_ body: @Sendable (inout AppData) -> Set<Data>) -> Set<Data> {
         var data = data
         let skipped = body(&data)
@@ -248,8 +229,6 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         }
         self.data = data
     }
-
-    // MARK: - snippets and tunnels
 
     func save(_ snippet: Snippet) { data.snippets[id: snippet.id] = snippet }
 
@@ -275,13 +254,8 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         data.tunnels.removeAll { $0.id == tunnel.id }
     }
 
-    // MARK: - known hosts
+    func forget(_ known: KnownHost) { data.knownHosts.removeAll { $0 == known } }
 
-    func forget(_ known: KnownHost) {
-        data.knownHosts.removeAll { $0 == known }
-    }
-
-    /// called by the live activity's button.
     func disconnectAll() {
         sessions.closeAll()
         tunnels.stopAll()
@@ -289,15 +263,12 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
 
     func eraseAll() {
         disconnectAll()
-        // first, so no sync round sees the empty data; other devices keep theirs.
+        // first, so no sync round sees the empty data; other devices keep theirs
         sync.turnOff()
         Keychain.deleteAll()
         data = AppData()
     }
 
-    // MARK: - connecting
-
-    /// asks the user about unknown host keys and missing passwords along the way.
     func connect(
         _ host: Host, interactive: Bool = true, progress: @escaping @Sendable (Int, ConnectStage) -> Void = { _, _ in }
     ) async throws -> SSHConnection {
@@ -307,8 +278,7 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
             hops.append(SSHHop(endpoint: hop.endpoint, credentials: try await credentials(for: hop)))
         }
         let hostIDs = chain.map(\.id)
-        // passwords to save are held until the server has accepted them, so a
-        // typo isn't stored (and synced) for next time.
+        // passwords are saved only once the server accepts them, so a typo isn't stored and synced
         let accepted = Mutex<[UUID: String]>([:])
         let handlers = SSHConnectHandlers(
             verifyHostKey: { _, endpoint, key in
@@ -325,15 +295,14 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         for (hostID, password) in accepted.withLock({ $0 }) {
             do { try savePassword(password, for: hostID) } catch { log.error("couldn't save password") }
         }
-        markConnected(host)
+        data.hosts[id: host.id]?.lastConnected = .now
         return connection
     }
 
-    /// ends with the host itself.
+    /// ends with the host itself
     func jumpChain(for host: Host) throws -> [Host] {
         var chain: [Host] = []
         var visiting: Set<UUID> = [host.id]
-        // jump hosts can have jump hosts of their own, like `ProxyJump`.
         func walk(_ ids: [UUID]) throws {
             for id in ids {
                 guard let jump = self.host(id) else { continue }
@@ -351,14 +320,14 @@ let log = Logger(subsystem: "catgirl.engineering.pounce", category: "app")
         var errorDescription: String? { "The jump hosts for this host go round in a loop." }
     }
 
-    /// hosts without their own key (like quick connects) try every key that
-    /// doesn't need face id, the way an ssh agent would.
+    /// hosts without their own key (like quick connects) try the first keys that
+    /// don't need face id, the way an ssh agent would
     private func credentials(for host: Host) async throws -> [SSHCredential] {
         let identities =
             identity(host.identityID).map { [$0] } ?? Array(data.identities.filter { !$0.requiresBiometry }.prefix(3))
         let keys = identities.map { ($0.id, "Sign in to \(host.displayName) with “\($0.name)”") }
         let hostID = host.id
-        // off the main actor: keychain reads can block on face id.
+        // off the main actor: keychain reads can block on face id
         return try await Task.detached {
             let credentials: [SSHCredential] = try keys.compactMap { id, reason in
                 try Keychain.key(for: id, reason: reason).map { .privateKey(try $0.sshPrivateKey()) }
@@ -396,23 +365,11 @@ struct Notice: Identifiable, Equatable {
     var tint: SwiftUI.Color { isError ? .red : .green }
 }
 
-extension Array where Element: Identifiable {
-    /// setting replaces or appends the element; setting nil removes it.
-    subscript(id id: Element.ID?) -> Element? {
-        get { first { $0.id == id } }
-        set {
-            guard let newValue else { return removeAll { $0.id == id } }
-            if let index = firstIndex(where: { $0.id == newValue.id }) {
-                self[index] = newValue
-            } else {
-                append(newValue)
-            }
-        }
-    }
-}
-
 extension Host {
     init(endpoint: SSHEndpoint) {
         self.init(hostname: endpoint.host, port: endpoint.port, username: endpoint.username)
     }
+
+    /// for connections that can't ask the user about an unknown host key
+    var untrustedKeyHint: String { "Connect to \(displayName) in pounce once to trust its host key." }
 }

@@ -51,7 +51,6 @@ struct QuickConnectIntent: AppIntent {
     }
 }
 
-/// types into the terminal, like tapping the snippet in the key bar.
 struct SendSnippetToSessionIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Send Snippet to Session"
@@ -73,16 +72,12 @@ struct SendSnippetToSessionIntent: AppIntent {
         guard let open = AppModel.shared.sessions.sessions[id: session.id],
             let snippet = AppModel.shared.snippet(snippet.id)
         else { throw IntentError.missing }
-        // typing into a signed-in shell is as good as the keys themselves.
+        // typing into a signed-in shell is as good as the keys themselves
         try await unlockSecrets()
         guard open.state == .connected else {
             throw IntentError.failed("“\(open.displayTitle)” isn't connected.")
         }
-        let placeholders = snippet.placeholders
-        guard values.count >= placeholders.count else {
-            throw IntentError.failed("“\(snippet.name)” needs values for \(placeholders.formatted()).")
-        }
-        open.run(snippet, values: Dictionary(uniqueKeysWithValues: zip(placeholders, values)))
+        try open.run(snippet, values: snippet.placeholderValues(values))
         return .result()
     }
 }

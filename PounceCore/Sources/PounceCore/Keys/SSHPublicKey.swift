@@ -3,11 +3,10 @@ import Foundation
 import NIOSSH
 
 public struct SSHPublicKey: Sendable, Hashable {
-    /// secure enclave keys report as `.ecdsaP256`: on the wire they're plain p-256 keys.
+    /// secure enclave keys report as `.ecdsaP256`: on the wire they're plain p-256 keys
     public let kind: KeyKind
     public let blob: Data
     public var comment: String
-    /// in bits, as `ssh-keygen -l` prints it.
     public let bits: Int
 
     public init(blob: Data, comment: String = "") throws(KeyError) {
@@ -52,11 +51,11 @@ public struct SSHPublicKey: Sendable, Hashable {
         try self.init(authorizedKeysLine: String(openSSHPublicKey: key))
     }
 
-    /// leading `authorized_keys` options are skipped by looking for the first algorithm name.
+    /// leading `authorized_keys` options are skipped by looking for the first algorithm name
     public init(authorizedKeysLine: String) throws(KeyError) {
         let tokens = authorizedKeysLine.split(whereSeparator: \.isWhitespace).map(String.init)
         guard let index = tokens.firstIndex(where: { Self.algorithmNames.contains($0) }), index + 1 < tokens.count,
-            let blob = Data(base64Encoded: Self.padded(tokens[index + 1]))
+            let blob = Data(unpaddedBase64: tokens[index + 1])
         else { throw .unrecognizedFormat }
         try self.init(blob: blob, comment: tokens[(index + 2)...].joined(separator: " "))
         guard algorithm == tokens[index] else { throw .malformed }
@@ -66,10 +65,6 @@ public struct SSHPublicKey: Sendable, Hashable {
         "ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "ssh-rsa", "ssh-dss",
     ]
 
-    static func padded(_ base64: String) -> String {
-        base64 + String(repeating: "=", count: (4 - base64.count % 4) % 4)
-    }
-
     public var algorithm: String { kind.algorithm }
 
     public var authorizedKeysLine: String {
@@ -77,13 +72,12 @@ public struct SSHPublicKey: Sendable, Hashable {
         return comment.isEmpty ? line : "\(line) \(comment)"
     }
 
-    /// `SHA256:<unpadded base64>`, as `ssh-keygen -l` prints it.
     public var fingerprint: String {
         "SHA256:" + Data(SHA256.hash(data: blob)).base64EncodedString().replacingOccurrences(of: "=", with: "")
     }
 
-    /// openssh's "drunken bishop" randomart, the 11 lines `ssh-keygen -lv` prints.
-    /// ported from `fingerprint_randomart` in sshkey.c.
+    /// openssh's "drunken bishop" randomart, the 11 lines `ssh-keygen -lv` prints,
+    /// ported from `fingerprint_randomart` in sshkey.c
     public var randomart: [String] {
         let width = 17
         let height = 9
@@ -95,7 +89,7 @@ public struct SSHPublicKey: Sendable, Hashable {
 
         for byte in SHA256.hash(data: blob) {
             var input = byte
-            // each byte holds four 2-bit moves, lowest bits first.
+            // each byte holds four 2-bit moves, lowest bits first
             for _ in 0..<4 {
                 x += input & 0x1 != 0 ? 1 : -1
                 y += input & 0x2 != 0 ? 1 : -1
@@ -113,6 +107,7 @@ public struct SSHPublicKey: Sendable, Hashable {
             let trailing = width - leading - label.count
             return "+" + String(repeating: "-", count: leading) + label + String(repeating: "-", count: trailing) + "+"
         }
+        let typeName = kind.curve == nil ? kind.algorithm.dropFirst(4).uppercased() : "ECDSA"
         var lines = [border("[\(typeName) \(bits)]")]
         for row in 0..<height {
             lines.append("|" + String((0..<width).map { symbols[min(field[$0][row], maxIndex)] }) + "|")
@@ -120,7 +115,4 @@ public struct SSHPublicKey: Sendable, Hashable {
         lines.append(border("[SHA256]"))
         return lines
     }
-
-    /// short type name openssh uses in randomart titles and `ssh-keygen -l`.
-    var typeName: String { kind.curve == nil ? kind.algorithm.dropFirst(4).uppercased() : "ECDSA" }
 }

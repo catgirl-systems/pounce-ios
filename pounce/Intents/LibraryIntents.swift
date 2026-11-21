@@ -2,8 +2,6 @@ import AppIntents
 import Foundation
 import PounceCore
 
-// MARK: - keys
-
 struct GetPublicKeyIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Get Public Key"
@@ -22,8 +20,6 @@ struct GetPublicKeyIntent: AppIntent {
     }
 }
 
-/// signs in with what the host already has, so the first key still has to
-/// get there some other way (like a password).
 struct InstallPublicKeyIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Install Public Key on Host"
@@ -43,7 +39,7 @@ struct InstallPublicKeyIntent: AppIntent {
     }
 
     // the key arrives on stdin so it needs no quoting, and `sh -c` keeps it
-    // working when the login shell isn't posix.
+    // working when the login shell isn't posix
     private static let script = """
         sh -c 'umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && IFS= read -r key && \
         if grep -qxF "$key" ~/.ssh/authorized_keys; then echo present; \
@@ -61,20 +57,17 @@ struct InstallPublicKeyIntent: AppIntent {
         guard result.exitStatus == 0 else {
             throw IntentError.failed("Couldn't update authorized_keys: \(result.text)")
         }
-        // read again: connecting stamped the host, and sync may have changed it.
+        // read again: connecting stamped the host, and sync may have changed it
         if assign, var current = app.host(saved.id) {
             current.identityID = identity.id
             app.save(current)
         }
-        let added = result.output.contains("added")
         return .result(
-            dialog: added
+            dialog: result.output.contains("added")
                 ? "Installed “\(identity.name)” on \(saved.displayName)."
                 : "\(saved.displayName) already has “\(identity.name)”.")
     }
 }
-
-// MARK: - sync
 
 struct SyncNowIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication

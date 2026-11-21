@@ -21,7 +21,7 @@ struct StartTunnelIntent: AppIntent {
         else { throw IntentError.missing }
         try await unlockSecrets(for: [host])
         try await stayAliveForConnections()
-        let port = try await TunnelWaiter.start(saved)
+        let port = try await startAndWait(saved)
         return .result(value: port, dialog: "\(saved.displayName) is listening on port \(port).")
     }
 }
@@ -64,7 +64,7 @@ struct ToggleTunnelIntent: AppIntent {
         }
         try await unlockSecrets(for: [host])
         try await stayAliveForConnections()
-        _ = try await TunnelWaiter.start(saved)
+        _ = try await startAndWait(saved)
         return .result(value: true)
     }
 }
@@ -88,27 +88,23 @@ struct GetRunningTunnelsIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<[TunnelEntity]> {
-        let tunnels = AppModel.shared.savedTunnels.map(TunnelEntity.init).filter(\.isRunning)
-        return .result(value: tunnels)
+        .result(value: AppModel.shared.savedTunnels.map(TunnelEntity.init).filter(\.isRunning))
     }
 }
 
-enum TunnelWaiter {
-    /// returns once it listens, or throws why it couldn't.
-    @MainActor static func start(_ tunnel: Tunnel) async throws -> Int {
-        let manager = AppModel.shared.tunnels
-        // from the background nobody would see a host key or password prompt.
-        manager.start(tunnel, interactive: UIApplication.shared.applicationState == .active)
-        let deadline = ContinuousClock.now + .seconds(60)
-        while ContinuousClock.now < deadline {
-            switch manager.status[tunnel.id] {
-            case .running(let port): return port
-            case .failed(let message): throw IntentError.failed(message)
-            case nil: throw IntentError.failed("The tunnel stopped before it started.")
-            case .starting: try await Task.sleep(for: .milliseconds(100))
-            }
+@MainActor private func startAndWait(_ tunnel: Tunnel) async throws -> Int {
+    let manager = AppModel.shared.tunnels
+    // from the background nobody would see a host key or password prompt
+    manager.start(tunnel, interactive: UIApplication.shared.applicationState == .active)
+    let deadline = ContinuousClock.now + .seconds(60)
+    while ContinuousClock.now < deadline {
+        switch manager.status[tunnel.id] {
+        case .running(let port): return port
+        case .failed(let message): throw IntentError.failed(message)
+        case nil: throw IntentError.failed("The tunnel stopped before it started.")
+        case .starting: try await Task.sleep(for: .milliseconds(100))
         }
-        manager.stop(tunnel)
-        throw IntentError.failed("The tunnel didn't start within a minute.")
     }
+    manager.stop(tunnel)
+    throw IntentError.failed("The tunnel didn't start within a minute.")
 }

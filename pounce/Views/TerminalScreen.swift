@@ -41,7 +41,6 @@ struct TerminalScreen: View {
                         .transition(
                             reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
-                // the bell: a quick glow around the edges.
                 RoundedRectangle(cornerRadius: 44)
                     .strokeBorder(Color.accentColor, lineWidth: flash ? 6 : 0)
                     .opacity(flash ? 0.8 : 0)
@@ -59,7 +58,7 @@ struct TerminalScreen: View {
             if let session { StartupSnippetSheet(session: session, snippet: snippet) }
         }
         // tagged with the session, so switching sessions isn't taken for a bell
-        // or a state change.
+        // or a state change
         .onChange(of: Tagged(id: selected, value: session?.bells)) { old, new in
             guard old.id == new.id, !reduceMotion else { return }
             withAnimation(.easeOut(duration: 0.08)) {
@@ -85,7 +84,7 @@ struct TerminalScreen: View {
             }
         }
         .onChange(of: selected) { _, id in sessions.current = id }
-        // a shortcut or spotlight can present another session while this is up.
+        // a shortcut or spotlight can present another session while this is up
         .onChange(of: sessions.current) { _, id in
             if let id, id != selected, sessions.sessions[id: id] != nil { selected = id }
         }
@@ -93,8 +92,6 @@ struct TerminalScreen: View {
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .statusBarHidden(false)
     }
-
-    // MARK: top bar
 
     private func topBar(_ session: Session) -> some View {
         HStack(spacing: 10) {
@@ -140,7 +137,7 @@ struct TerminalScreen: View {
                     selected = new.id
                 }
                 Button("Paste", systemImage: "doc.on.clipboard") {
-                    // swiftterm's own paste, which brackets it when the program asks.
+                    // swiftterm's own paste, which brackets it when the program asks
                     session.terminal.view.paste(nil)
                 }
             }
@@ -185,13 +182,12 @@ struct TerminalScreen: View {
     }
 }
 
-/// a value that only compares as changed within the same session.
 private struct Tagged<Value: Equatable>: Equatable {
     let id: Session.ID
     let value: Value
 }
 
-/// its own view, so a title set by a program redraws the chip and not the screen.
+/// its own view, so a title set by a program redraws the chip and not the screen
 private struct SessionChip: View {
     let session: Session
     let isSelected: Bool
@@ -225,9 +221,7 @@ private struct SessionChip: View {
     }
 }
 
-// MARK: - password
-
-/// non-blocking: typing carries on and dismisses it.
+/// non-blocking: typing carries on and dismisses it
 private struct PasswordChip: View {
     let session: Session
 
@@ -245,8 +239,6 @@ private struct PasswordChip: View {
         .sensoryFeedback(.success, trigger: session.fills)
     }
 }
-
-// MARK: - connection state
 
 private struct StateOverlay: View {
     let session: Session
@@ -272,7 +264,7 @@ private struct StateOverlay: View {
             case .exited(let status):
                 card(
                     symbol: "checkmark.circle", title: "Session Ended",
-                    message: status.map { $0 == 0 ? "The shell exited." : "The shell exited with status \($0)." }
+                    message: status.flatMap { $0 == 0 ? nil : "The shell exited with status \($0)." }
                         ?? "The shell exited.")
             case .connected:
                 EmptyView()
@@ -319,14 +311,12 @@ extension View {
     }
 }
 
-// MARK: - terminal view
-
-/// the swiftterm view lives as long as the session, not this view.
+/// the swiftterm view lives as long as the session, not this view
 private struct TerminalHost: UIViewRepresentable {
     let session: Session
     let fontSize: Double
     /// no keyboard under the app lock's cover or while connecting, when a
-    /// face id prompt for the key may be up: it would sit above both.
+    /// face id prompt for the key may be up: it would sit above both
     let locked: Bool
     @Binding var showSnippets: Bool
 
@@ -355,7 +345,7 @@ private struct TerminalHost: UIViewRepresentable {
         if locked {
             if view.isFirstResponder { _ = view.resignFirstResponder() }
         } else if context.coordinator.locked {
-            // just unlocked: the keyboard comes back.
+            // just unlocked: the keyboard comes back
             Task { _ = view.becomeFirstResponder() }
         }
         context.coordinator.locked = locked
@@ -391,12 +381,10 @@ private struct TerminalHost: UIViewRepresentable {
     }
 }
 
-// MARK: - key bar
-
 private final class KeyBarHost: UIInputView, UIInputViewAudioFeedback {
     private let host: UIHostingController<KeyBar>
 
-    /// without this `playInputClick()` stays silent.
+    /// without this `playInputClick()` stays silent
     var enableInputClicksWhenVisible: Bool { true }
 
     init(session: Session, showSnippets: Binding<Bool>) {
@@ -425,13 +413,12 @@ private struct KeyBar: View {
     @State private var control = Modifier.off
     @State private var meta = Modifier.off
     @State private var dragOffset: CGFloat = 0
-    /// set when a hold just locked a modifier, so the tap that ends it is ignored.
+    /// set when a hold just locked a modifier, so the tap that ends it is ignored
     @State private var heldAt: Date?
     @AppStorage("modifierLock") private var lockGesture = ModifierLock.doubleTap
-    @AppStorage("accentHex") private var accentHex = Accent.defaultHex
 
     /// the bar is rebuilt each time the terminal is shown while swiftterm's
-    /// modifiers live on, so a pending ctrl has to show up here.
+    /// modifiers live on, so a pending ctrl has to show up here
     init(session: Session, showSnippets: Binding<Bool>) {
         self.session = session
         _showSnippets = showSnippets
@@ -466,10 +453,10 @@ private struct KeyBar: View {
             .padding(.vertical, 6)
         }
         .scrollIndicators(.hidden)
-        // the keyboard's window is outside the app's view tree and its tint.
-        .tint(Accent.color(hex: accentHex))
+        // the keyboard's window is outside the app's view tree and its tint
+        .accentTint()
         // swiftterm drops a modifier after each key; a locked one goes back on
-        // (after swiftterm's own setter has returned).
+        // after swiftterm's own setter has returned
         .onReceive(NotificationCenter.default.publisher(for: .terminalViewControlModifierReset)) {
             relock($0, $control) { view.controlModifier = true }
         }
@@ -486,12 +473,11 @@ private struct KeyBar: View {
     }
 
     /// also a trackpad: drag sideways across the arrows to move the cursor
-    /// one cell per step.
+    /// one cell per step
     private var arrows: some View {
         HStack(spacing: 2) {
-            ForEach([("left", 0x44), ("up", 0x41), ("down", 0x42), ("right", 0x43)] as [(String, UInt8)], id: \.0) {
-                name, code in
-                RepeatKey(systemImage: "arrow.\(name)", label: name.capitalized) { view.sendArrow(code) }
+            ForEach([ArrowKey.left, .up, .down, .right], id: \.self) { key in
+                RepeatKey(systemImage: "arrow.\(key)", label: "\(key)".capitalized) { view.sendArrow(key) }
             }
         }
         .padding(2)
@@ -501,7 +487,7 @@ private struct KeyBar: View {
                 .onChanged { value in
                     let steps = Int((value.translation.width - dragOffset) / 14)
                     guard steps != 0 else { return }
-                    for _ in 0..<abs(steps) { view.sendArrow(steps > 0 ? 0x43 : 0x44) }
+                    for _ in 0..<abs(steps) { view.sendArrow(steps > 0 ? .right : .left) }
                     dragOffset += CGFloat(steps) * 14
                     UISelectionFeedbackGenerator().selectionChanged()
                 }
@@ -532,12 +518,11 @@ private struct KeyBar: View {
         .accessibilityLabel(label)
     }
 
-    /// a tap applies it to the next key. depending on the setting, a quick
-    /// second tap or a hold locks it on until it's tapped again.
+    /// a tap applies it to the next key; a quick second tap or a hold
+    /// (depending on the setting) locks it on until it's tapped again
     private func toggle(_ title: String, state: Binding<Modifier>, apply: @escaping (Bool) -> Void) -> some View {
         let current = state.wrappedValue
         return Button {
-            // lifting the finger after a hold that locked the key.
             if let heldAt, Date.now.timeIntervalSince(heldAt) < 10 {
                 self.heldAt = nil
                 return
@@ -592,7 +577,7 @@ enum ModifierLock: String, CaseIterable, Identifiable {
 
 private enum Modifier: Equatable {
     case off
-    /// on for the next key only. remembers when, to detect a double tap.
+    /// on for the next key only; the date detects a double tap
     case once(Date)
     case locked
 
@@ -609,7 +594,6 @@ private enum Modifier: Equatable {
     }
 }
 
-/// repeats while held, after a short pause.
 private struct RepeatKey: View {
     let systemImage: String
     let label: String

@@ -67,8 +67,8 @@ enum Accent {
         families.lazy.flatMap(\.swatches).first { $0.hex == hex }?.name ?? "Custom"
     }
 
-    /// adjusted per appearance so it stays readable: very light colors darken
-    /// in light mode, very dark ones lighten in dark mode.
+    // adjusted per appearance so it stays readable: very light colors darken
+    // in light mode, very dark ones lighten in dark mode
     static func color(hex: String) -> Color {
         let base = UIColor(hex: hex) ?? .systemOrange
         return Color(
@@ -101,13 +101,23 @@ extension UIColor {
         self.init(rgb: value)
     }
 
-    /// wcag relative luminance, 0 (black) to 1 (white).
+    // wcag relative luminance, from 0 (black) to 1 (white)
     var relativeLuminance: CGFloat {
         var (r, g, b): (CGFloat, CGFloat, CGFloat) = (0, 0, 0)
         getRed(&r, green: &g, blue: &b, alpha: nil)
         func channel(_ c: CGFloat) -> CGFloat { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
         return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
     }
+}
+
+extension View {
+    func accentTint() -> some View { modifier(AccentTint()) }
+}
+
+private struct AccentTint: ViewModifier {
+    @AppStorage("accentHex") private var accentHex = Accent.defaultHex
+
+    func body(content: Content) -> some View { content.tint(Accent.color(hex: accentHex)) }
 }
 
 struct AccentPickerView: View {

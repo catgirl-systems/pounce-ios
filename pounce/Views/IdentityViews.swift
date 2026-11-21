@@ -1,4 +1,3 @@
-import CoreImage.CIFilterBuiltins
 import CryptoKit
 import PounceCore
 import SwiftUI
@@ -86,7 +85,7 @@ private struct IdentityRow: View {
     }
 }
 
-struct IdentityDetail: View {
+private struct IdentityDetail: View {
     let identity: Identity
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
@@ -104,7 +103,6 @@ struct IdentityDetail: View {
         _icon = State(initialValue: identity.icon)
     }
 
-    /// creates `authorized_keys` with the right permissions if it's missing.
     private var installCommand: String {
         "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '\(identity.publicKey.replacing("'", with: "'\\''"))' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
     }
@@ -147,7 +145,7 @@ struct IdentityDetail: View {
                     Text(
                         identity.kind == .secureEnclaveP256
                             ? "Keys made in the Secure Enclave can't leave this \(Device.noun)."
-                            : "Off by default. When on, the private key is end-to-end encrypted and sent to your other devices."
+                            : "When on, the private key is end-to-end encrypted and sent to your other devices."
                     )
                 }
             }
@@ -184,9 +182,7 @@ struct IdentityDetail: View {
                 Text("Public Key")
             } footer: {
                 Text(
-                    current.syncsKey
-                        ? "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key."
-                        : "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key. The private key never leaves this \(Device.noun)."
+                    "Add the public key to ~/.ssh/authorized_keys on a server to sign in with this key.\(current.syncsKey ? "" : " The private key never leaves this \(Device.noun).")"
                 )
             }
             Section {
@@ -211,7 +207,6 @@ struct IdentityDetail: View {
         .task { hasKey = Keychain.hasKey(for: identity.id) }
     }
 
-    /// an emptied name goes back to what it was.
     private func commitName() {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
@@ -245,23 +240,14 @@ struct IdentityDetail: View {
     }
 }
 
-struct QRCodeSheet: View {
+private struct QRCodeSheet: View {
     let title: String
     let text: String
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 18) {
-                if let image = Self.render(text) {
-                    Image(uiImage: image)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(16)
-                        .background(.white, in: .rect(cornerRadius: 20))
-                        .frame(maxWidth: 320)
-                        .accessibilityLabel("QR code of the public key")
-                }
+                QRCodeImage(text: text, label: "QR code of the public key")
                 Text("Scan to get the public key").font(.subheadline).foregroundStyle(.secondary)
             }
             .padding()
@@ -271,26 +257,12 @@ struct QRCodeSheet: View {
         }
         .presentationDetents([.medium, .large])
     }
-
-    private static let context = CIContext()
-
-    static func render(_ text: String) -> UIImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(text.utf8)
-        filter.correctionLevel = "M"
-        guard let output = filter.outputImage?.transformed(by: .init(scaleX: 8, y: 8)),
-            let cg = context.createCGImage(output, from: output.extent)
-        else { return nil }
-        return UIImage(cgImage: cg)
-    }
 }
 
-// MARK: - generate
-
-struct GenerateKeyView: View {
+private struct GenerateKeyView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
-    @State private var name = "\(UIDevice.current.name)"
+    @State private var name = UIDevice.current.name
     @State private var secureEnclave = SecureEnclaveSupport.isAvailable
     @State private var requireBiometry = false
     @State private var created: Identity?
@@ -313,13 +285,11 @@ struct GenerateKeyView: View {
                 } footer: {
                     Text(
                         secureEnclave
-                            ? "An ECDSA P-256 key made inside this \(Device.noun)'s Secure Enclave. It can never be copied off the device, not even by pounce. Works with any OpenSSH server from the last decade."
+                            ? "An ECDSA P-256 key made inside this \(Device.noun)'s Secure Enclave. It can never be copied off the device, not even by pounce, and works with any OpenSSH server from the last decade."
                             : "A modern Ed25519 key, kept in the Keychain on this \(Device.noun) only.")
                 }
                 Section {
                     Toggle("Require \(Biometry.current.name)", isOn: $requireBiometry)
-                } footer: {
-                    Text("Asks for \(Biometry.current.name) each time the key signs in.")
                 }
             }
             .animation(.snappy, value: secureEnclave)
@@ -343,7 +313,7 @@ struct GenerateKeyView: View {
     }
 }
 
-enum SecureEnclaveSupport {
+private enum SecureEnclaveSupport {
     static var isAvailable: Bool {
         #if targetEnvironment(simulator)
             false
@@ -353,7 +323,7 @@ enum SecureEnclaveSupport {
     }
 }
 
-struct KeyCreatedView: View {
+private struct KeyCreatedView: View {
     let identity: Identity
     let done: () -> Void
     @State private var sealed = false
@@ -398,9 +368,7 @@ struct KeyCreatedView: View {
     }
 }
 
-// MARK: - import
-
-struct ImportKeyView: View {
+private struct ImportKeyView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
@@ -412,7 +380,6 @@ struct ImportKeyView: View {
     @State private var pickingFile = false
     @State private var created: Identity?
     @State private var saving = false
-    /// the pasteboard's change count when the key was pasted from it.
     @State private var pastedChange: Int?
 
     var body: some View {
@@ -504,15 +471,13 @@ struct ImportKeyView: View {
         defer { saving = false }
         let (text, passphrase) = (text, passphrase.isEmpty ? nil : passphrase)
         do {
-            // an encrypted key's bcrypt rounds take a while.
+            // an encrypted key's bcrypt rounds take a while
             let material = try await Task.detached { try KeyImport.parse(text, passphrase: passphrase) }.value
             created = try app.addIdentity(material, name: name, requireBiometry: requireBiometry)
-            // don't leave the private key lying around in memory or on the
-            // pasteboard longer than needed.
+            // drop the key from memory, and from the pasteboard if it still holds our paste;
+            // compare `changeCount` because reading it would show the system paste prompt
             self.text = ""
             self.passphrase = ""
-            // only when it still holds what was pasted here, and without reading
-            // it, which would put up the system's paste prompt.
             if pastedChange == UIPasteboard.general.changeCount { UIPasteboard.general.items = [] }
         } catch {
             self.error = error.localizedDescription

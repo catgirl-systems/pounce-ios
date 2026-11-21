@@ -1,7 +1,7 @@
 import Foundation
 
-/// the decrypted content of one record. items keep their own uuid as the record
-/// id; a synced private key or password gets an id derived from its owner's.
+/// items keep their own uuid as the record id; a synced private key or password
+/// gets an id derived from its owner's
 struct SyncPayload: Codable, Sendable {
     enum Kind: String, Codable, Sendable {
         case host
@@ -14,7 +14,7 @@ struct SyncPayload: Codable, Sendable {
     }
 
     var kind: Kind
-    /// milliseconds; the later edit wins a conflict.
+    /// milliseconds; the later edit wins a conflict
     var modified: Int64
     var deleted: Bool?
     var host: Host?
@@ -58,12 +58,11 @@ enum SyncRecords {
     }
 
     /// every non-secret item as it would be uploaded, with a content hash that
-    /// ignores device-local fields (recents) and the edit time.
+    /// ignores device-local fields (recents) and the edit time
     static func items(_ data: AppData) -> [Data: Item] {
         var out: [Data: Item] = [:]
         func add(_ id: UUID, _ payload: SyncPayload) {
-            let hash = (try? encoder.encode(payload)).map(SyncCrypto.sha256) ?? Data()
-            out[id.data] = Item(id: id.data, payload: payload, hash: hash)
+            out[id.data] = Item(id: id.data, payload: payload, hash: hash(payload))
         }
         for var host in data.hosts {
             host.lastConnected = nil
@@ -88,12 +87,12 @@ enum SyncRecords {
     struct Change: Sendable {
         var id: Data
         var payload: SyncPayload
-        /// the local item's hash when the change was decided; nil if it didn't exist.
+        /// the local item's hash when the change was decided; nil if it didn't exist
         var expected: Data?
     }
 
-    /// applies remote changes to `data`, skipping any item edited locally since
-    /// `expected` was taken (the next round settles it). returns the skipped ids.
+    /// skips any item edited locally since `expected` was taken (the next round
+    /// settles it) and returns the skipped ids
     static func apply(_ changes: [Change], to data: inout AppData) -> Set<Data> {
         let current = items(data)
         var skipped: Set<Data> = []
@@ -137,7 +136,7 @@ enum SyncRecords {
     }
 
     /// two devices trusting a host at once leave two entries; every device keeps
-    /// the same one (latest, then highest id), and deleting the other syncs too.
+    /// the same one (latest, then highest id), and deleting the other syncs too
     private static func dedupeKnownHosts(_ data: inout AppData) {
         var keep: [String: KnownHost] = [:]
         for known in data.knownHosts {
@@ -156,19 +155,5 @@ enum SyncRecords {
         var value = value
         change(&value)
         return value
-    }
-}
-
-extension Array where Element: Identifiable {
-    fileprivate subscript(id id: Element.ID) -> Element? {
-        get { first { $0.id == id } }
-        set {
-            guard let newValue else { return removeAll { $0.id == id } }
-            if let index = firstIndex(where: { $0.id == id }) {
-                self[index] = newValue
-            } else {
-                append(newValue)
-            }
-        }
     }
 }

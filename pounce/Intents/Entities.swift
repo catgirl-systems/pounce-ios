@@ -2,8 +2,6 @@ import AppIntents
 import Foundation
 import PounceCore
 
-// MARK: - hosts
-
 struct HostEntity: AppEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: "Host", numericFormat: "\(placeholder: .int) hosts")
@@ -43,15 +41,15 @@ struct HostEntity: AppEntity {
 struct HostQuery: EntityPropertyQuery, EntityStringQuery {
     typealias ComparatorMappingType = (HostEntity) -> Bool
 
-    // immutable, but the sdk doesn't mark it sendable; the metadata extractor
-    // only accepts a stored initialiser here.
+    // immutable but not marked sendable by the sdk, and the metadata extractor
+    // only accepts a stored initialiser here (same in the queries below)
     nonisolated(unsafe) static let properties = QueryProperties {
         Property(\HostEntity.$name) {
             ContainsComparator { value in
                 { (entity: HostEntity) in entity.name.localizedCaseInsensitiveContains(value) }
             }
             EqualToComparator { value in
-                { (entity: HostEntity) in entity.name.localizedCaseInsensitiveCompare(value) == .orderedSame }
+                { (entity: HostEntity) in entity.name.equalsIgnoringCase(value) }
             }
         }
         Property(\HostEntity.$hostname) {
@@ -59,7 +57,7 @@ struct HostQuery: EntityPropertyQuery, EntityStringQuery {
                 { (entity: HostEntity) in entity.hostname.localizedCaseInsensitiveContains(value) }
             }
             EqualToComparator { value in
-                { (entity: HostEntity) in entity.hostname.localizedCaseInsensitiveCompare(value) == .orderedSame }
+                { (entity: HostEntity) in entity.hostname.equalsIgnoringCase(value) }
             }
         }
         Property(\HostEntity.$username) {
@@ -71,7 +69,7 @@ struct HostQuery: EntityPropertyQuery, EntityStringQuery {
         Property(\HostEntity.$tags) {
             ContainsComparator { value in
                 { (entity: HostEntity) in
-                    entity.tags.contains { $0.localizedCaseInsensitiveCompare(value) == .orderedSame }
+                    entity.tags.contains { $0.equalsIgnoringCase(value) }
                 }
             }
         }
@@ -116,8 +114,6 @@ struct HostQuery: EntityPropertyQuery, EntityStringQuery {
     }
 }
 
-// MARK: - tunnels
-
 enum TunnelKindEnum: String, AppEnum {
     case local, remote, dynamic
 
@@ -150,7 +146,7 @@ struct TunnelEntity: AppEntity {
     @Property(title: "Target") var target: String
     @Property(title: "Host") var hostName: String
     @Property(title: "Running") var isRunning: Bool
-    /// differs from the bind port when that was 0.
+    /// differs from the bind port when that was 0
     @Property(title: "Listening Port") var listeningPort: Int?
     @Property(title: "Error") var error: String?
 
@@ -185,8 +181,6 @@ struct TunnelEntity: AppEntity {
 struct TunnelQuery: EntityPropertyQuery, EntityStringQuery {
     typealias ComparatorMappingType = (TunnelEntity) -> Bool
 
-    // immutable, but the sdk doesn't mark it sendable; the metadata extractor
-    // only accepts a stored initialiser here.
     nonisolated(unsafe) static let properties = QueryProperties {
         Property(\TunnelEntity.$name) {
             ContainsComparator { value in
@@ -198,7 +192,7 @@ struct TunnelQuery: EntityPropertyQuery, EntityStringQuery {
         }
         Property(\TunnelEntity.$hostName) {
             EqualToComparator { value in
-                { (entity: TunnelEntity) in entity.hostName.localizedCaseInsensitiveCompare(value) == .orderedSame }
+                { (entity: TunnelEntity) in entity.hostName.equalsIgnoringCase(value) }
             }
             ContainsComparator { value in
                 { (entity: TunnelEntity) in entity.hostName.localizedCaseInsensitiveContains(value) }
@@ -244,8 +238,6 @@ struct TunnelQuery: EntityPropertyQuery, EntityStringQuery {
     }
 }
 
-// MARK: - snippets
-
 struct SnippetEntity: AppEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: "Snippet", numericFormat: "\(placeholder: .int) snippets")
@@ -271,15 +263,13 @@ struct SnippetEntity: AppEntity {
 struct SnippetQuery: EntityPropertyQuery, EntityStringQuery {
     typealias ComparatorMappingType = (SnippetEntity) -> Bool
 
-    // immutable, but the sdk doesn't mark it sendable; the metadata extractor
-    // only accepts a stored initialiser here.
     nonisolated(unsafe) static let properties = QueryProperties {
         Property(\SnippetEntity.$name) {
             ContainsComparator { value in
                 { (entity: SnippetEntity) in entity.name.localizedCaseInsensitiveContains(value) }
             }
             EqualToComparator { value in
-                { (entity: SnippetEntity) in entity.name.localizedCaseInsensitiveCompare(value) == .orderedSame }
+                { (entity: SnippetEntity) in entity.name.equalsIgnoringCase(value) }
             }
         }
         Property(\SnippetEntity.$command) {
@@ -317,8 +307,6 @@ struct SnippetQuery: EntityPropertyQuery, EntityStringQuery {
     }
 }
 
-// MARK: - keys
-
 enum KeyKindEnum: String, AppEnum {
     case ed25519, ecdsaP256, ecdsaP384, ecdsaP521, rsa, secureEnclaveP256
 
@@ -335,7 +323,6 @@ enum KeyKindEnum: String, AppEnum {
     init(_ kind: KeyKind) { self = Self(rawValue: kind.rawValue) ?? .ed25519 }
 }
 
-/// public half only.
 struct IdentityEntity: AppEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: "SSH Key", numericFormat: "\(placeholder: .int) SSH keys")
@@ -377,8 +364,6 @@ struct IdentityQuery: EntityStringQuery {
     }
 }
 
-// MARK: - open sessions
-
 struct SessionEntity: AppEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: "Open Session", numericFormat: "\(placeholder: .int) open sessions")
@@ -413,8 +398,6 @@ struct SessionQuery: EntityQuery {
     }
 }
 
-// MARK: - command results
-
 struct CommandResultEntity: TransientAppEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: "Command Result", numericFormat: "\(placeholder: .int) command results")
@@ -422,10 +405,10 @@ struct CommandResultEntity: TransientAppEntity {
     @Property(title: "Host") var host: String
     @Property(title: "Output") var output: String
     @Property(title: "Error Output") var errorOutput: String
-    /// missing when the command never finished, or the server didn't say.
+    /// missing when the command never finished, or the server didn't say
     @Property(title: "Exit Status") var exitStatus: Int?
     @Property(title: "Succeeded") var succeeded: Bool
-    /// why it couldn't run at all, like an unreachable host.
+    /// why it couldn't run at all, like an unreachable host
     @Property(title: "Failure") var failure: String?
     @Property(title: "Duration (Seconds)") var duration: Double
 
@@ -445,11 +428,9 @@ struct CommandResultEntity: TransientAppEntity {
     }
 }
 
-// MARK: - querying
-
 extension Array {
     /// filters and sorts for an `EntityPropertyQuery`; sorts on properties
-    /// missing from `orders` are ignored.
+    /// missing from `orders` are ignored
     func query(
         _ comparators: [(Element) -> Bool], mode: EntityQueryComparatorMode,
         sortedBy sorts: [EntityQuerySort<Element>], limit: Int?,

@@ -4,10 +4,10 @@ import PounceCore
 import UIKit
 import os
 
-private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: "sync")
+private let syncLog = Logger(category: "sync")
 
 /// owns the sync engine and the loop that runs it while pounce is in front:
-/// one round, then a long-poll until the server has news or a local edit lands.
+/// one round, then a long-poll until the server has news or a local edit lands
 @MainActor @Observable final class SyncController {
     private(set) var engine: SyncEngine?
     private(set) var isSyncing = false
@@ -21,17 +21,11 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
     @ObservationIgnored private var waiting: Task<Void, any Error>?
     @ObservationIgnored private var debounce: Task<Void, Never>?
     @ObservationIgnored private var again = false
-    @ObservationIgnored let vault = KeychainSyncVault()
+    @ObservationIgnored private let vault = KeychainSyncVault()
 
-    static let stateURL: URL = {
-        let base =
-            (try? FileManager.default.url(
-                for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
-            ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("sync.json")
-    }()
+    private static let stateURL = Store.directory.appendingPathComponent("sync.json")
 
-    static let hooks = SyncHooks(
+    private static let hooks = SyncHooks(
         snapshot: { await MainActor.run { AppModel.shared.sync.isOn ? AppModel.shared.data : nil } },
         mutate: { body in await MainActor.run { AppModel.shared.sync.isOn ? AppModel.shared.applySync(body) : [] } })
 
@@ -53,14 +47,12 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
 
     private func refresh() async {
         guard let engine else { return }
-        // runs after every round; unchanged values shouldn't redraw settings.
+        // runs after every round; unchanged values shouldn't redraw settings
         let (devices, thisDevice, server) = await (engine.devices, engine.deviceID, engine.origin)
         if devices != self.devices { self.devices = devices }
         if thisDevice != self.thisDevice { self.thisDevice = thisDevice }
         if server != self.server { self.server = server }
     }
-
-    // MARK: the loop
 
     func start() {
         guard let engine, loop == nil else { return }
@@ -91,7 +83,7 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
                     again = false
                     continue
                 }
-                // stopped during the round: a restarted loop has its own wait by now.
+                // stopped during the round: a restarted loop has its own wait by now
                 guard !Task.isCancelled else { return }
                 let wait = Task { try await engine.waitForChanges() }
                 waiting = wait
@@ -115,7 +107,6 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
         }
     }
 
-    /// called on every change to the app's data.
     func localChanged() {
         guard let engine else { return }
         Task { await engine.noteLocalChanges() }
@@ -134,10 +125,8 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
         start()
     }
 
-    // MARK: setting up
-
-    /// accepts a bare host name and assumes https.
-    static func serverURL(_ text: String) throws(SyncError) -> URL {
+    /// accepts a bare host name and assumes https
+    private static func serverURL(_ text: String) throws(SyncError) -> URL {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed.contains("://") ? trimmed : "https://\(trimmed)") else {
             throw .badServerURL
@@ -168,8 +157,6 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
         start()
     }
 
-    // MARK: account
-
     func remove(_ device: RosterDevice) async throws {
         guard let engine else { throw SyncError.notSetUp }
         try await engine.removeDevice(device.id)
@@ -177,7 +164,7 @@ private let syncLog = Logger(subsystem: "catgirl.engineering.pounce", category: 
         AppModel.shared.markSyncedSecretsExposed()
     }
 
-    /// synchronous on purpose: once it returns, no round can read the app's data.
+    /// synchronous on purpose: once it returns, no round can read the app's data
     func turnOff() {
         stop()
         debounce?.cancel()

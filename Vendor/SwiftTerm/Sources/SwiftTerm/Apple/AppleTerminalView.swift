@@ -9,9 +9,6 @@
 import Foundation
 import CoreGraphics
 import CoreText
-#if canImport(MetalKit)
-import MetalKit
-#endif
 #if canImport(ImageIO)
 import ImageIO
 #endif
@@ -365,8 +362,6 @@ extension TerminalView {
             updateCaretView ()
         }
         
-        search = SearchService (terminal: terminal)
-        
         #if os(macOS)
         needsDisplay = true
         #else
@@ -396,7 +391,6 @@ extension TerminalView {
             
             // These used to be outside
             accessibility.invalidate ()
-            search.invalidate ()
             
             terminalDelegate?.sizeChanged (source: self, newCols: newCols, newRows: newRows)
            
@@ -601,11 +595,6 @@ extension TerminalView {
                                                   object: nil, queue: .main) { [weak self] _ in
             self?.textBlinkApplicationActive = true
             self?.updateTextBlinkLifecycle()
-#if canImport(MetalKit)
-            if self?.isMetalRendererEligibleForRetry == true {
-                self?.requestMetalDisplay()
-            }
-#endif
         }
         let resignedActive = appCenter.addObserver(forName: NSApplication.willResignActiveNotification,
                                                     object: nil, queue: .main) { [weak self] _ in
@@ -629,11 +618,6 @@ extension TerminalView {
                                                object: nil, queue: .main) { [weak self] _ in
             self?.textBlinkApplicationActive = true
             self?.updateTextBlinkLifecycle()
-#if canImport(MetalKit)
-            if self?.isMetalRendererEligibleForRetry == true {
-                self?.requestMetalDisplay()
-            }
-#endif
         }
         let resignedActive = center.addObserver(forName: UIApplication.willResignActiveNotification,
                                                  object: nil, queue: .main) { [weak self] _ in
@@ -803,9 +787,6 @@ extension TerminalView {
                 caretView.caretTextColor = caretView.defaultCaretTextColor
             }
         }
-#if canImport(MetalKit) && os(macOS)
-        queueMetalDisplay()
-#endif
     }
     
     func getAttributedValue (_ attribute: Attribute, usingFg: TTColor, andBg: TTColor) -> [NSAttributedString.Key:Any]?
@@ -2310,22 +2291,6 @@ extension TerminalView {
                 let y = buffer.yDisp+buffer.y
                 terminalDelegate?.rangeChanged (source: self, startY: y, endY: y)
             }
-            // Pure cursor moves (e.g. CSI C / CSI D from word-jumps) don't
-            // mark any row dirty, so getUpdateRange() returns nil. With Metal
-            // the cursor is drawn by the renderer reading buffer.x/y at draw
-            // time, and MTKView is paused — without an explicit redraw the
-            // cursor stays at its old screen position until something else
-            // dirties a row. Trigger a redraw if the cursor moved.
-            #if canImport(MetalKit)
-            if metalView != nil {
-                let buffer = terminal.displayBuffer
-                let cursor = (x: buffer.x, y: buffer.yBase + buffer.y, hidden: terminal.cursorHidden)
-                if lastRenderedCursor == nil || lastRenderedCursor! != cursor {
-                    lastRenderedCursor = cursor
-                    requestMetalDisplay()
-                }
-            }
-            #endif
             return
         }
         if notifyUpdateChanges {
@@ -2391,58 +2356,11 @@ extension TerminalView {
                 region = CGRect (x: 0, y: newY, width: frame.width, height: region.maxY - newY)
             }
         }
-#if canImport(MetalKit)
-        if metalView != nil {
-            let buffer = displayBuffer
-            if buffer.lines.count == 0 {
-                metalDirtyRange = nil
-            } else if let absoluteDependencyRange {
-                metalDirtyRange = absoluteDependencyRange
-            } else {
-                let maxRow = buffer.lines.count - 1
-                let visibleStart = buffer.yDisp
-                let visibleEnd = min(maxRow, buffer.yDisp + buffer.rows - 1)
-                if rowStart >= 0 && rowEnd >= rowStart && rowEnd < terminal.rows {
-                    let absStart = buffer.yDisp + rowStart
-                    let absEnd = buffer.yDisp + rowEnd
-                    let clampedStart = max(0, min(absStart, maxRow))
-                    let clampedEnd = max(0, min(absEnd, maxRow))
-                    if clampedStart <= clampedEnd {
-                        metalDirtyRange = clampedStart...clampedEnd
-                    } else if visibleStart <= visibleEnd {
-                        metalDirtyRange = visibleStart...visibleEnd
-                    } else {
-                        metalDirtyRange = nil
-                    }
-                } else if visibleStart <= visibleEnd {
-                    metalDirtyRange = visibleStart...visibleEnd
-                } else {
-                    metalDirtyRange = nil
-                }
-            }
-            lastRenderedCursor = (x: buffer.x, y: buffer.yBase + buffer.y, hidden: terminal.cursorHidden)
-            requestMetalDisplay()
-        } else {
-            setNeedsDisplay(region)
-        }
-#else
         setNeedsDisplay(region)
-#endif
         #else
         // TODO iOS: need to update the code above, but will do that when I get some real
         // life data being fed into it.
-        #if canImport(MetalKit)
-        if metalView != nil {
-            metalDirtyRange = metalVisibleRange()
-            let buffer = terminal.displayBuffer
-            lastRenderedCursor = (x: buffer.x, y: buffer.yBase + buffer.y, hidden: terminal.cursorHidden)
-            requestMetalDisplay()
-        } else {
-            setNeedsDisplay(bounds)
-        }
-        #else
         setNeedsDisplay(bounds)
-        #endif
         #endif
 
         updateDebugDisplay ()
@@ -2544,31 +2462,6 @@ extension TerminalView {
         }
     }
 
-#if canImport(MetalKit)
-    func requestMetalDisplay() {
-        guard let metalView = metalView else {
-            return
-        }
-        metalView.setNeedsDisplay(metalView.bounds)
-    }
-
-    func queueMetalDisplay() {
-        guard metalView != nil else {
-            return
-        }
-        if !pendingMetalDisplay {
-            let fps60 = 16670000
-            let fpsDelay = fps60
-            pendingMetalDisplay = true
-            DispatchQueue.main.asyncAfter(
-                deadline: DispatchTime (uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + UInt64 (fpsDelay))) { [weak self] in
-                    guard let self else { return }
-                    self.pendingMetalDisplay = false
-                    self.metalView?.setNeedsDisplay(self.metalView?.bounds ?? .zero)
-                }
-        }
-    }
-#endif
     
     ///
     /// This takes a string returned by events (NSEvent or UIKey) as the 'charactersIngoringModifiers'
@@ -2750,7 +2643,6 @@ extension TerminalView {
       
     func feedPrepare()
     {
-        search.invalidate()
         // Preserve manual selection while output is streaming when mouse reporting is disabled.
         if allowMouseReporting {
             selection.active = false

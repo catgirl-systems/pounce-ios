@@ -9,35 +9,34 @@ import UIKit
     enum State: Equatable {
         case connecting
         case connected
-        /// dropped or never came up; can be retried.
+        /// dropped or never came up; can be retried
         case failed(String)
         case exited(Int?)
     }
 
     let id = UUID()
     let host: Host
-    /// for the hop capsules.
     let hops: [String]
     private(set) var state = State.connecting
     private(set) var stages: [ConnectStage]
-    /// set via an osc title sequence; only shown while settings allows it.
+    /// set by an osc title sequence
     private(set) var title: String?
-    /// bumped on every bel, for the haptic and the edge flash.
+    /// bumped on every bel, for the haptic and the edge flash
     private(set) var bells = 0
-    /// keeps a dropped session showing its last screen under the overlay.
+    /// keeps a dropped session showing its last screen under the overlay
     private(set) var hasOutput = false
-    /// an established connection dropped, as opposed to one that never came up.
-    /// only these reconnect on their own.
+    /// an established connection dropped, not one that never came up; only
+    /// these reconnect on their own
     private(set) var dropped = false
-    /// the remote side is asking for a password and the host has one saved.
+    /// the remote side is asking for a password and the host has one saved
     private(set) var asksForPassword = false
     private(set) var hasSavedPassword = false
     private(set) var isFilling = false
-    /// bumped when a password was actually typed in, for the haptic.
+    /// bumped when a password was actually typed in, for the haptic
     private(set) var fills = 0
-    /// waits here until its placeholders are filled in.
+    /// waits here until its placeholders are filled in
     var pendingStartup: Snippet?
-    /// sent on connect in place of the host's own startup snippet.
+    /// sent on connect in place of the host's own startup snippet
     var startupOverride: Snippet?
     var theme: TerminalTheme {
         didSet {
@@ -80,10 +79,10 @@ import UIKit
 
     private func run() async {
         // this run's own connection: `self.connection` may be a later run's by
-        // the time this one fails.
+        // the time this one fails
         var opened: SSHConnection?
         do {
-            // a shortcut or spotlight can open a session behind the lock screen.
+            // a shortcut or spotlight can open a session behind the lock screen
             guard await AppModel.shared.lock.unlock() else {
                 state = .failed("pounce stayed locked.")
                 return
@@ -117,9 +116,8 @@ import UIKit
                 terminal.feed(chunk)
                 checkForPasswordPrompt()
             }
-            // output ends when the shell exits (we have its status) or the connection
-            // goes away.
-            // a shell killed by a signal has no status, but the connection is still up.
+            // output ends when the shell exits or the connection goes away; a shell
+            // killed by a signal has no status, but the connection is still up
             if shell.exitStatus != nil || connection.isActive {
                 state = .exited(shell.exitStatus)
                 connection.close()
@@ -130,7 +128,7 @@ import UIKit
                 endedWithoutCard(error: "Connection lost")
             }
         } catch {
-            // the shell didn't open; don't leave the signed-in connection behind.
+            // the shell didn't open; don't leave the signed-in connection behind
             opened?.close()
             guard !Task.isCancelled else { return }
             log.error("session failed: \(error.localizedDescription, privacy: .public)")
@@ -140,9 +138,8 @@ import UIKit
         shell = nil
     }
 
-    /// with the end-of-session card off, the session closes itself with a toast.
-    /// only a connection dropped outside the foreground stays, to reconnect on
-    /// return; an exited shell closes regardless.
+    /// with the end card off, the session closes itself with a toast, except a
+    /// connection dropped outside the foreground, which stays to reconnect on return
     private func endedWithoutCard(error: String?, status: Int? = nil) {
         guard !UserDefaults.standard.bool(forKey: "showEndCard", default: true),
             !dropped || UIApplication.shared.applicationState == .active
@@ -165,7 +162,7 @@ import UIKit
     }
 
     func send(_ bytes: [UInt8]) {
-        // nothing reaches a shell from behind the lock, keyboard or not.
+        // nothing reaches a shell from behind the lock, keyboard or not
         guard !AppModel.shared.lock.isLocked else { return }
         if asksForPassword { withAnimation(.snappy) { asksForPassword = false } }
         shell?.write(bytes)
@@ -180,7 +177,6 @@ import UIKit
         if asks != asksForPassword { withAnimation(.snappy) { asksForPassword = asks } }
     }
 
-    /// asks for face id first when the setting requires it.
     func fillPassword() async {
         guard !isFilling else { return }
         isFilling = true
@@ -206,11 +202,11 @@ import UIKit
     func ring() { bells += 1 }
 
     func setTitle(_ title: String) {
-        // shells set the same title on every prompt.
+        // shells set the same title on every prompt
         if title != self.title { self.title = title }
     }
 
-    /// keeps what's on screen.
+    /// keeps what's on screen
     func reconnect() {
         connection?.close()
         terminal.feed(Array("\r\n\u{1B}[2m— reconnecting —\u{1B}[0m\r\n".utf8))
@@ -227,7 +223,7 @@ import UIKit
 }
 
 /// owns the swiftterm view so the terminal and its scrollback outlive any
-/// swiftui view showing it.
+/// swiftui view showing it
 @MainActor final class TerminalController: NSObject, TerminalViewDelegate {
     let view: TerminalView
     weak var session: Session?
@@ -241,7 +237,7 @@ import UIKit
         setFontSize(fontSize)
         view.optionAsMetaKey = true
         theme.apply(to: view)
-        // our key bar replaces swiftterm's.
+        // our key bar replaces swiftterm's
         view.inputAccessoryView = nil
         gestures = TerminalGestures(view: view) { [weak self] in self?.view.send([0x09]) }
         caret = TerminalCaret(terminal: view)
@@ -260,9 +256,7 @@ import UIKit
         view.font = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
-    // MARK: `TerminalViewDelegate`
-    // swiftterm calls these on the main thread.
-
+    // swiftterm calls the delegate on the main thread
     nonisolated func send(source: TerminalView, data: ArraySlice<UInt8>) {
         let bytes = Array(data)
         MainActor.assumeIsolated { session?.send(bytes) }
@@ -290,7 +284,7 @@ import UIKit
     }
 
     nonisolated func clipboardCopy(source: TerminalView, content: Data) {
-        // osc 52 from the remote side, like tmux or vim copying.
+        // osc 52 from the remote side, like tmux or vim copying
         MainActor.assumeIsolated {
             if let text = String(data: content, encoding: .utf8) { UIPasteboard.general.string = text }
         }
@@ -303,25 +297,29 @@ import UIKit
     nonisolated func clipboardRead(source: TerminalView) -> Data? { nil }
 }
 
-/// swiftterm minus its mouse drag: when the remote program asks for the
-/// mouse, swiftterm turns a pan into a held left button, which makes tmux
-/// select text. `TerminalGestures` sends the wheel instead.
+/// in mouse mode swiftterm turns a pan into a held left button, which makes tmux
+/// select text; `TerminalGestures` sends the wheel instead
 private final class PounceTerminalView: TerminalView {
     override func mouseModeChanged(source: Terminal) {}
 }
 
+/// the final byte of the escape sequence, `A` to `D`
+enum ArrowKey: UInt8 {
+    case up = 0x41
+    case down, right, left
+}
+
 extension TerminalView {
-    /// `code` is `A` to `D` for up, down, right, left, in whichever cursor mode
-    /// the remote program asked for (vim and less use application mode).
-    func sendArrow(_ code: UInt8) {
-        send([0x1B, getTerminal().applicationCursor ? 0x4F : 0x5B, code])
+    /// in whichever cursor mode the remote program asked for (vim and less use application mode)
+    func sendArrow(_ key: ArrowKey) {
+        send([0x1B, getTerminal().applicationCursor ? 0x4F : 0x5B, key.rawValue])
     }
 }
 
 @MainActor @Observable final class SessionManager {
     private(set) var sessions: [Session] = []
     var presented: Session.ID?
-    /// for going back to it from the bottom bar.
+    /// for going back to it from the bottom bar
     var current: Session.ID?
 
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -357,7 +355,7 @@ extension TerminalView {
         let index = sessions.firstIndex { $0.id == session.id }
         sessions.removeAll { $0.id == session.id }
         if presented == session.id || current == session.id {
-            // move to a neighbour, or leave the terminal when it was the last.
+            // move to a neighbour, or leave the terminal when it was the last
             let next = index.flatMap { sessions.indices.contains($0) ? sessions[$0] : sessions.last }
             current = next?.id
             if presented == session.id { presented = next?.id }
@@ -373,18 +371,15 @@ extension TerminalView {
 
     func sessions(for host: Host) -> [Session] { sessions.filter { $0.host.id == host.id } }
 
-    // MARK: background
-
-    /// asks ios for extra time so a quick trip to another app doesn't drop the
-    /// connections.
+    /// asks ios for extra time so a quick trip to another app doesn't drop the connections
     func didEnterBackground() {
         wasInBackground = true
         guard AppModel.shared.hasOpenConnections, backgroundTask == .invalid else { return }
-        // with location on, the app keeps running and nothing pauses.
+        // with location on, the app keeps running and nothing pauses
         guard !AppModel.shared.keeper.isRunning else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Keep SSH sessions") { [weak self] in
             MainActor.assumeIsolated {
-                // out of time: say so on the live activity before ios suspends the app.
+                // out of time: say so on the live activity before ios suspends the app
                 _ = Task {
                     await AppModel.shared.liveActivity.pausing()
                     self?.endBackgroundTask()
@@ -395,11 +390,11 @@ extension TerminalView {
     }
 
     /// reconnects whatever dropped; returning from a face id prompt or control
-    /// center doesn't count.
+    /// center doesn't count
     func didBecomeActive() {
         endBackgroundTask()
         // also after a shortcut started something in the background, which
-        // couldn't start the activity from there.
+        // couldn't start the activity from there
         AppModel.shared.liveActivity.becameActive()
         guard wasInBackground else { return }
         wasInBackground = false
@@ -415,7 +410,7 @@ extension TerminalView {
 }
 
 extension UserDefaults {
-    /// like `@AppStorage` with a `true` default.
+    /// like `@AppStorage`, with a default for keys never set
     func bool(forKey key: String, default value: Bool) -> Bool {
         object(forKey: key) as? Bool ?? value
     }

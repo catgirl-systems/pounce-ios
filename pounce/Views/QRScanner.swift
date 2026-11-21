@@ -3,7 +3,7 @@ import SwiftUI
 import VisionKit
 
 /// keys too big for one code (rsa) come as `pounce:<i>/<n>:<chunk>` parts,
-/// which can be scanned in any order.
+/// which can be scanned in any order
 struct KeyScannerView: View {
     let onKey: (String) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -46,7 +46,7 @@ struct KeyScannerView: View {
         }
     }
 
-    @ViewBuilder private var status: some View {
+    private var status: some View {
         HStack(spacing: 12) {
             if let progress = assembler.progress {
                 ZStack {
@@ -100,8 +100,6 @@ private struct QRHelpView: View {
                     command(single)
                 } header: {
                     Text("Small keys (Ed25519, ECDSA)")
-                } footer: {
-                    Text("Prints the key as a QR code in the terminal.")
                 }
                 Section {
                     command(multi)
@@ -135,7 +133,7 @@ private struct QRHelpView: View {
     }
 }
 
-/// reports every qr payload it sees; callers dedupe.
+/// reports every qr payload it sees; callers dedupe
 struct Scanner: UIViewControllerRepresentable {
     let onPayload: (String) -> Void
 

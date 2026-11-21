@@ -1,11 +1,10 @@
+import CoreImage.CIFilterBuiltins
 import PounceCore
 import SwiftUI
 
-// MARK: - notice banner
-
 struct NoticeBanner: View {
-    /// the terminal and sheets cover the banners beneath them, so each has
-    /// its own copy and only the one presented last shows the notice.
+    // the terminal and sheets cover the banners beneath them, so each has
+    // its own copy and only the one presented last shows the notice
     @State private var id = UUID()
     @Environment(AppModel.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -42,7 +41,7 @@ struct NoticeBanner: View {
 
     private func banner(_ notice: Notice) -> some View {
         HStack(spacing: 12) {
-            VStack(alignment: .center, spacing: 1) {
+            VStack(spacing: 1) {
                 Text(notice.title).font(.subheadline.weight(.semibold)).lineLimit(3)
                 if let subtitle = notice.subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -59,17 +58,14 @@ struct NoticeBanner: View {
         .onTapGesture { app.notice = nil }
         .gesture(DragGesture(minimumDistance: 8).onEnded { if $0.translation.height < 0 { app.notice = nil } })
         .task {
-            // cancelled means this copy went away (the terminal closed, say),
-            // not that time is up: leave the notice for the other copy.
+            // cancelled means this copy went away, not that time is up:
+            // leave the notice for the other copy
             do { try await Task.sleep(for: .seconds(Self.readingTime(notice))) } catch { return }
             if app.notice?.id == notice.id { app.notice = nil }
         }
     }
-}
 
-extension NoticeBanner {
-    /// a base plus time per word, more for errors; a tap dismisses sooner.
-    static func readingTime(_ notice: Notice) -> Double {
+    private static func readingTime(_ notice: Notice) -> Double {
         let words = "\(notice.title) \(notice.subtitle ?? "")".split(whereSeparator: \.isWhitespace).count
         let base = notice.isError ? 4.0 : 3.0
         return min(notice.isError ? 10 : 6, base + Double(words) * 0.3)
@@ -96,8 +92,6 @@ private struct NoticeSymbol: View {
         }
     }
 }
-
-// MARK: - status
 
 struct StatusDot: View {
     enum Kind { case idle, connecting, connected, failed }
@@ -143,7 +137,6 @@ extension Session.State {
         }
     }
 
-    /// the dot is colour only; this is what voiceover reads.
     var label: String {
         switch self {
         case .connecting: "Connecting"
@@ -153,8 +146,6 @@ extension Session.State {
         }
     }
 }
-
-// MARK: - randomart
 
 struct RandomartView: View {
     let lines: [String]
@@ -180,7 +171,7 @@ struct RandomartView: View {
                 return
             }
             revealed = 0
-            // about 0.6 s for the whole picture.
+            // about 0.6 s for the whole picture
             let step = max(1, total / 60)
             while revealed < total {
                 try? await Task.sleep(for: .milliseconds(10))
@@ -189,8 +180,8 @@ struct RandomartView: View {
         }
     }
 
-    /// blanks everything past the reveal point so the frame keeps its size
-    /// while the art draws in.
+    // blanks everything past the reveal point so the frame keeps its size
+    // while the art draws in
     private var visibleLines: [String] {
         var budget = revealed
         return lines.map { line in
@@ -210,8 +201,6 @@ struct FingerprintText: View {
             .textSelection(.enabled)
     }
 }
-
-// MARK: - hops
 
 struct HopTrail: View {
     let hops: [String]
@@ -261,8 +250,6 @@ extension ConnectStage {
     }
 }
 
-// MARK: - themes
-
 struct ThemePreview: View {
     let theme: TerminalTheme
 
@@ -289,7 +276,7 @@ struct ThemePreview: View {
         .accessibilityHidden(true)
     }
 
-    /// -1 means the default foreground.
+    // -1 is the default foreground
     private func line(_ runs: [(String, Int)]) -> some View {
         var line = AttributedString()
         for (text, color) in runs {
@@ -301,10 +288,8 @@ struct ThemePreview: View {
     }
 }
 
-// MARK: - forms
-
 extension View {
-    /// `action` is responsible for dismissing when it's done.
+    // `action` must dismiss the sheet itself when it's done
     func editorToolbar(
         _ title: String, confirm: String = "Save", disabled: Bool = false, busy: Bool = false,
         action: @escaping () -> Void
@@ -314,7 +299,6 @@ extension View {
             .modifier(EditorToolbar(confirm: confirm, disabled: disabled, busy: busy, action: action))
     }
 
-    /// with `cancel`, an xmark button instead of done.
     func dismissToolbar(_ title: String = "Done", cancel: Bool = false) -> some View {
         modifier(DismissToolbar(title: title, cancel: cancel))
     }
@@ -323,7 +307,7 @@ extension View {
 private struct EditorToolbar: ViewModifier {
     let confirm: String
     let disabled: Bool
-    /// work that can't be abandoned halfway is running: no cancel either.
+    // work that can't stop halfway is running, so no cancel either
     let busy: Bool
     let action: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -355,12 +339,10 @@ private struct DismissToolbar: ViewModifier {
 }
 
 enum Device {
-    /// for copy that names the device; pounce runs on ipad too.
     @MainActor static let noun = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
 }
 
 extension Binding where Value == Bool {
-    /// for dialogs about an optional item: dismissing clears it.
     static func isPresent<Item: Sendable>(_ item: Binding<Item?>) -> Binding<Bool> {
         Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } })
     }
@@ -404,12 +386,6 @@ struct CodeEditor: View {
     }
 }
 
-// MARK: - formatting
-
-extension Int {
-    var byteCount: String { ByteCountFormatter.string(fromByteCount: Int64(self), countStyle: .binary) }
-}
-
 extension KeyKind {
     var label: String {
         switch self {
@@ -439,8 +415,6 @@ struct CrouchButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - icons
-
 extension Host {
     var symbol: String { icon ?? defaultSymbol }
 
@@ -467,7 +441,6 @@ struct IconTile: View {
     }
 }
 
-/// picking the default clears the choice.
 struct IconPickerRow: View {
     @Binding var icon: String?
     let defaultSymbol: String
@@ -539,4 +512,34 @@ enum IconChoices {
         "wrench.and.screwdriver", "flask", "shippingbox", "bolt", "flame", "leaf", "star", "heart", "sparkles",
         "crown", "flag", "tag", "bookmark", "pawprint", "cat", "dog", "fish", "bird", "ladybug",
     ]
+}
+
+struct QRCodeImage: View {
+    let text: String
+    let label: LocalizedStringKey
+
+    private static let context = CIContext()
+
+    var body: some View {
+        if let image = Self.render(text) {
+            Image(uiImage: image)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+                .padding(16)
+                .background(.white, in: .rect(cornerRadius: 20))
+                .frame(maxWidth: 320)
+                .accessibilityLabel(label)
+        }
+    }
+
+    private static func render(_ text: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: .init(scaleX: 8, y: 8)),
+            let cg = context.createCGImage(output, from: output.extent)
+        else { return nil }
+        return UIImage(cgImage: cg)
+    }
 }

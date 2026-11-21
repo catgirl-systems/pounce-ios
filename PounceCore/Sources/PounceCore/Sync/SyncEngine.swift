@@ -2,36 +2,34 @@ import CryptoKit
 import Foundation
 import os
 
-/// everything the engine remembers between launches, none of it secret: the
-/// verified roster, the feed position and what the server holds for each record.
-public struct SyncState: Codable, Sendable {
-    public var origin: URL
-    public var accountID: Data
-    public var deviceID: Data
-    public var roster: RosterState
+/// kept between launches, none of it secret: the verified roster, the feed
+/// position and what the server holds for each record
+struct SyncState: Codable, Sendable {
+    var origin: URL
+    var accountID: Data
+    var deviceID: Data
+    var roster: RosterState
     var since: UInt64 = 0
     var marks: [String: Mark] = [:]
-    /// when each item still waiting to upload was first seen edited, by hex id.
+    /// when each item still waiting to upload was first seen edited, by hex id
     var edits: [String: Int64] = [:]
 
     struct Mark: Codable, Sendable {
         var id: Data
         var rev: UInt64
         var kind: SyncPayload.Kind
-        /// content hash; empty for a deletion.
+        /// empty for a deletion
         var hash: Data
         var deleted: Bool
         var owner: UUID?
     }
 }
 
-public struct SyncReport: Sendable, Equatable {
+public struct SyncReport: Sendable {
     public var received = 0
     public var sent = 0
-    /// records that failed to decrypt or verify: a sign of a tampering server.
+    /// records that failed to decrypt or verify: a sign of a tampering server
     public var rejected = 0
-
-    public init() {}
 
     static func + (a: SyncReport, b: SyncReport) -> SyncReport {
         var sum = a
@@ -42,12 +40,10 @@ public struct SyncReport: Sendable, Equatable {
     }
 }
 
-/// how the engine reads and changes the app's data, on whatever actor owns it.
 /// a nil snapshot means sync was turned off meanwhile: the engine stops rather
-/// than upload whatever the app holds now (after an erase, nothing).
+/// than upload whatever the app holds now (after an erase, nothing)
 public struct SyncHooks: Sendable {
     public var snapshot: @Sendable () async -> AppData?
-    /// runs `body` on the live data and returns its result.
     public var mutate: @Sendable (_ body: @escaping @Sendable (inout AppData) -> Set<Data>) async -> Set<Data>
 
     public init(
@@ -60,20 +56,21 @@ public struct SyncHooks: Sendable {
 }
 
 public struct PairingInvite: Sendable {
-    /// for the qr code: `pounce-pair:` and the invite, base64url.
+    public static let prefix = "pounce-pair:"
+    /// for the qr code: `prefix` and the invite, base64url
     public let code: String
     let id: Data
 }
 
 public struct PairingRequest: Sendable {
-    /// six digits, to compare with what the joining device shows.
+    /// six digits, to compare with what the joining device shows
     public let code: String
     public let deviceName: String
     let device: RosterState.NewDevice
 }
 
 public actor SyncEngine {
-    public private(set) var state: SyncState
+    private var state: SyncState
     let api: SyncAPI
     let vault: any SyncVault
     let stateURL: URL
@@ -82,7 +79,8 @@ public actor SyncEngine {
     private var epochKeys: [UInt32: SymmetricKey]
     private var running = false
     private var rerun = false
-    private static let log = Logger(subsystem: "catgirl.engineering.pounce", category: "sync")
+    private static let log = Logger(category: "sync")
+    private static let conflict = SyncError.server(status: 412, code: "precondition_failed")
 
     init(state: SyncState, vault: any SyncVault, stateURL: URL, hooks: SyncHooks) throws(SyncError) {
         self.state = state
@@ -101,11 +99,13 @@ public actor SyncEngine {
         return try? SyncEngine(state: state, vault: vault, stateURL: stateURL, hooks: hooks)
     }
 
+    public static let maxDevices = RosterState.maxActive
+
     public var deviceID: Data { state.deviceID }
     public var devices: [RosterDevice] { state.roster.activeDevices }
     public var origin: String { api.originText }
 
-    private func save() {
+    fileprivate func save() {
         do {
             try JSONEncoder().encode(state).write(
                 to: stateURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -124,8 +124,6 @@ public actor SyncEngine {
         try vault.saveEpochKeys(epochKeys.mapValues { $0.withUnsafeBytes { Data($0) } })
     }
 
-    // MARK: sessions
-
     private func session() async throws(SyncError) -> String {
         if let token { return token }
         let signer = try deviceKeys().signer()
@@ -143,7 +141,7 @@ public actor SyncEngine {
         return token
     }
 
-    /// runs `body` with a session, logging in again once when the token expired.
+    /// runs `body` with a session, logging in again once when the token expired
     private func withSession<T: Sendable>(_ body: (String) async throws(SyncError) -> T) async throws(SyncError) -> T {
         do {
             return try await body(try await session())
@@ -174,7 +172,7 @@ public actor SyncEngine {
             recipientID: B64(recipient.id), epoch: epoch, blob: B64(blob), signerID: B64(signerID), sig: B64(sig))
     }
 
-    /// a wrapped key counts only when a device of the verified roster signed it.
+    /// a wrapped key counts only when a device of the verified roster signed it
     static func unwrap(
         _ wire: WireKey, roster: RosterState, recipient: Data, epoch: UInt32, with key: P256.KeyAgreement.PrivateKey
     ) throws(SyncError) -> SymmetricKey {
@@ -199,12 +197,12 @@ public actor SyncEngine {
         return key
     }
 
-    /// fetches the roster from where it was last verified and checks each entry.
+    /// fetches the roster from where it was last verified and checks each entry
     static func fetchRoster(_ roster: RosterState, api: SyncAPI, token: String) async throws(SyncError) -> RosterState {
         var roster = roster
         while true {
             let (head, entries) = try await api.roster(token: token, from: roster.count)
-            // the server must never forget an entry this device has seen.
+            // the server must never forget an entry this device has seen
             guard head + 1 >= roster.count else { throw .rosterInvalid }
             for entry in entries { try roster.apply(entry.entry.data, entry.sig.data) }
             if roster.count > head { return roster }
@@ -217,8 +215,6 @@ public actor SyncEngine {
         save()
         guard state.roster.active(state.deviceID) != nil else { throw .removed }
     }
-
-    // MARK: account
 
     public static func create(
         origin: URL, invite: String?, deviceName: String, stateURL: URL, vault: any SyncVault, hooks: SyncHooks
@@ -272,7 +268,7 @@ public actor SyncEngine {
         return (engine, recovery)
     }
 
-    /// turns sync off on this device: local data stays, sync keys and state go.
+    /// turns sync off on this device: local data stays, sync keys and state go
     public func forget() {
         vault.wipe()
         try? FileManager.default.removeItem(at: stateURL)
@@ -292,10 +288,8 @@ public actor SyncEngine {
         forget()
     }
 
-    // MARK: syncing
-
     /// one round of upload and download. a call while a round runs makes it go
-    /// again instead of overlapping it.
+    /// again instead of overlapping it
     @discardableResult
     public func sync() async throws(SyncError) -> SyncReport {
         if running {
@@ -313,7 +307,7 @@ public actor SyncEngine {
         return report
     }
 
-    /// returns once records arrive or after about 25 seconds.
+    /// returns once records arrive or after about 25 seconds
     public func waitForChanges() async throws(SyncError) {
         _ = try await withSession { token throws(SyncError) in
             try await api.changes(token: token, since: state.since, limit: 1, wait: 25).records.count
@@ -321,7 +315,7 @@ public actor SyncEngine {
     }
 
     /// records when local items changed, without the network; call it on every
-    /// edit, since the later edit wins a conflict and offline edits wait.
+    /// edit, since the later edit wins a conflict and offline edits wait
     public func noteLocalChanges() async {
         if let snapshot = await hooks.snapshot() { stampEdits(snapshot) }
     }
@@ -335,7 +329,7 @@ public actor SyncEngine {
         stampEdits(try await snapshot())
         try await refreshRoster(token: token)
         var report = try await pull(token: token)
-        // a stale revision means another device wrote first: settle and go again.
+        // a stale revision means another device wrote first: settle and go again
         for _ in 0..<4 {
             let (pushed, stale) = try await push(token: token)
             report = report + pushed
@@ -346,24 +340,18 @@ public actor SyncEngine {
 
     private static var now: Int64 { Int64(Date.now.timeIntervalSince1970 * 1000) }
 
-    private struct Pending {
-        var id: Data
-        var payload: SyncPayload
-        var hash: Data
-    }
-
     /// local items that differ from what the server holds, and server items
-    /// that are gone locally (as deletions).
-    private func pending(_ snapshot: AppData) -> [Pending] {
+    /// that are gone locally (as deletions)
+    private func pending(_ snapshot: AppData) -> [SyncRecords.Item] {
         let local = SyncRecords.items(snapshot)
         let now = Self.now
-        var out: [Pending] = []
+        var out: [SyncRecords.Item] = []
         for (id, item) in local {
             let mark = state.marks[id.hex]
             guard item.hash != (mark?.deleted == false ? mark?.hash : nil) else { continue }
             var payload = item.payload
             payload.modified = state.edits[id.hex] ?? now
-            out.append(Pending(id: id, payload: payload, hash: item.hash))
+            out.append(.init(id: id, payload: payload, hash: item.hash))
         }
         for (hex, mark) in state.marks where !mark.deleted {
             let gone: Bool
@@ -374,7 +362,7 @@ public actor SyncEngine {
             }
             if gone {
                 out.append(
-                    Pending(
+                    .init(
                         id: mark.id,
                         payload: .tombstone(mark.kind, modified: state.edits[hex] ?? now, owner: mark.owner),
                         hash: Data()))
@@ -403,7 +391,7 @@ public actor SyncEngine {
     }
 
     /// decides each incoming record against local edits (the later edit wins),
-    /// applies what wins remotely and records what the server now holds.
+    /// applies what wins remotely and records what the server now holds
     private func receive(_ records: [WireRecord], token: String) async throws(SyncError) -> SyncReport {
         var report = SyncReport()
         let snapshot = try await snapshot()
@@ -414,7 +402,7 @@ public actor SyncEngine {
             let id = record.id.data
             let hex = id.hex
             let mark = state.marks[hex]
-            // an echo of this device's own write, or a server going backwards.
+            // an echo of this device's own write, or a server going backwards
             if let mark, record.rev <= mark.rev { continue }
             guard let blob = record.blob?.data,
                 let payload = try? await open(blob, id: id, rev: record.rev, token: token),
@@ -442,7 +430,7 @@ public actor SyncEngine {
                 edited > payload.modified
                     || (edited == payload.modified && (localHash ?? Data()).hex > remoteHash.hex)
             {
-                // the local edit is newer: it uploads over this revision next.
+                // the local edit is newer: it uploads over this revision next
                 continue
             }
             changes.append(.init(id: id, payload: payload, expected: localHash))
@@ -458,7 +446,7 @@ public actor SyncEngine {
             }
         }
         // read again: an identity can arrive in the same page as its key, and
-        // decides whether the key is stored behind face id.
+        // decides whether the key is stored behind face id
         let identities = changes.isEmpty ? snapshot.identities : try await self.snapshot().identities
         for secret in secrets { store(secret, identities: identities) }
         save()
@@ -469,7 +457,7 @@ public actor SyncEngine {
         guard let owner = secret.owner else { return }
         do {
             if let key = secret.key, key.kind != .secureEnclaveP256 {
-                // unknown identity: gated, the safer guess.
+                // unknown identity: gated, the safer guess
                 let gated = identities.first { $0.id == owner }?.requiresBiometry ?? true
                 try vault.saveIdentityKey(key, identity: owner, requireBiometry: gated)
             } else if let password = secret.password {
@@ -487,7 +475,7 @@ public actor SyncEngine {
     }
 
     /// uploads pending changes, 32 per batch. stale revisions are received like a
-    /// pull, so the next pass re-uploads only what still wins.
+    /// pull, so the next pass re-uploads only what still wins
     private func push(token: String) async throws(SyncError) -> (report: SyncReport, stale: Bool) {
         var report = SyncReport()
         var stale = false
@@ -515,7 +503,7 @@ public actor SyncEngine {
                 }
                 report.sent += results.count
             case .stale(let failed):
-                // gone from the server: the next pass creates it again, or drops a deletion.
+                // gone from the server: the next pass creates it again, or drops a deletion
                 for (id, current) in failed where current == nil { state.marks[id.hex] = nil }
                 report = report + (try await receive(failed.compactMap(\.current), token: token))
                 stale = true
@@ -525,8 +513,6 @@ public actor SyncEngine {
         return (report, stale)
     }
 
-    // MARK: secrets
-
     public func uploadKey(_ material: PrivateKeyMaterial, identity: UUID) async throws(SyncError) {
         try await upload(SyncPayload(kind: .key, modified: Self.now, owner: identity, key: material))
     }
@@ -535,14 +521,14 @@ public actor SyncEngine {
         try await upload(SyncPayload(kind: .password, modified: Self.now, owner: host, password: password))
     }
 
-    /// an explicit user action, so it wins over whatever revision is there.
+    /// an explicit user action, so it wins over whatever revision is there
     private func upload(_ payload: SyncPayload) async throws(SyncError) {
         guard let owner = payload.owner else { return }
         let id = SyncRecords.secretID(payload.kind, owner: owner)
         try await withSession { token throws(SyncError) in
             try await refreshRoster(token: token)
             // the owner's sync switch has to reach the server before its secret:
-            // a device that sees the secret with the switch still off deletes it.
+            // a device that sees the secret with the switch still off deletes it
             _ = try await push(token: token)
             let epoch = state.roster.epoch
             let key = try await epochKey(epoch, token: token)
@@ -570,14 +556,12 @@ public actor SyncEngine {
                     }
                 }
             }
-            throw .server(status: 412, code: "precondition_failed")
+            throw Self.conflict
         }
     }
 
-    // MARK: devices
-
     /// removes the device and rotates to a new epoch key in one roster append,
-    /// so nothing is ever written under a key the removed device knows.
+    /// so nothing is ever written under a key the removed device knows
     public func removeDevice(_ id: Data) async throws(SyncError) {
         try await withSession { token throws(SyncError) in
             try await refreshRoster(token: token)
@@ -601,14 +585,14 @@ public actor SyncEngine {
                             key, epoch: roster.epoch, account: state.accountID, to: recipient, signer: signer,
                             signerID: state.deviceID))
                 }
-                let head = try await api.appendRoster(
+                let appended = try await api.appendRoster(
                     token: token, head: state.roster.count - 1,
                     entries: [
                         WireEntry(entry: B64(remove), sig: B64(removeSig)),
                         WireEntry(entry: B64(rotate), sig: B64(rotateSig)),
                     ],
                     keys: keys)
-                if head != nil {
+                if appended {
                     state.roster = roster
                     try remember(key, epoch: roster.epoch)
                     save()
@@ -616,11 +600,9 @@ public actor SyncEngine {
                 }
                 try await refreshRoster(token: token)
             }
-            throw .server(status: 412, code: "precondition_failed")
+            throw Self.conflict
         }
     }
-
-    // MARK: pairing, existing device
 
     public func startPairing() async throws(SyncError) -> PairingInvite {
         let authToken = SyncCrypto.random(32)
@@ -631,11 +613,11 @@ public actor SyncEngine {
         let invite = SyncCrypto.message(
             .text("pounce/v1/pair"), .text(api.originText), .bytes(state.accountID), .bytes(id), .bytes(authToken),
             .bytes(state.deviceID), .bytes(try keys.signPub))
-        return PairingInvite(code: "pounce-pair:" + invite.base64URL, id: id)
+        return PairingInvite(code: PairingInvite.prefix + invite.base64URL, id: id)
     }
 
     /// waits for the other device to scan the code, then answers it with a signed
-    /// nonce. cancelling the task stops the wait.
+    /// nonce. cancelling the task stops the wait
     public func waitForJoiner(_ invite: PairingInvite) async throws(SyncError) -> PairingRequest {
         let signer = try deviceKeys().signer()
         let deadline = Date.now.addingTimeInterval(600)
@@ -657,13 +639,13 @@ public actor SyncEngine {
             }
             return PairingRequest(
                 code: SyncCrypto.pairingCode(payload: payload, nonce: nonce),
-                deviceName: (try? JSONDecoder().decode(DeviceMeta.self, from: device.meta))?.name ?? "Device",
+                deviceName: DeviceMeta.name(device.meta),
                 device: device)
         }
         throw .pairingExpired
     }
 
-    /// adds the device with every epoch key it needs, in one roster append.
+    /// adds the device with every epoch key it needs, in one roster append
     public func approve(_ request: PairingRequest) async throws(SyncError) {
         try await withSession { token throws(SyncError) in
             try await refreshRoster(token: token)
@@ -680,17 +662,17 @@ public actor SyncEngine {
                             try await epochKey(epoch, token: token), epoch: epoch, account: state.accountID,
                             to: (request.device.id, request.device.kemPub), signer: signer, signerID: state.deviceID))
                 }
-                let head = try await api.appendRoster(
+                let appended = try await api.appendRoster(
                     token: token, head: state.roster.count - 1, entries: [WireEntry(entry: B64(body), sig: B64(sig))],
                     keys: keys)
-                if head != nil {
+                if appended {
                     state.roster = roster
                     save()
                     return
                 }
                 try await refreshRoster(token: token)
             }
-            throw .server(status: 412, code: "precondition_failed")
+            throw Self.conflict
         }
     }
 
@@ -704,12 +686,8 @@ public actor SyncEngine {
         var reader = SSHReader([UInt8](payload))
         do {
             guard try reader.readText() == "pounce/v1/join" else { throw SyncError.pairingFailed }
-            let device = RosterState.NewDevice(
-                id: Data(try reader.readString()), signPub: Data(try reader.readString()),
-                kemPub: Data(try reader.readString()), meta: Data(try reader.readString()))
-            guard reader.isAtEnd, device.id.count == 16, SyncCrypto.signingKey(device.signPub) != nil,
-                SyncCrypto.agreementKey(device.kemPub) != nil, device.meta.count <= 1024
-            else { throw SyncError.pairingFailed }
+            let device = try RosterState.NewDevice.read(&reader)
+            guard reader.isAtEnd, device.isValid else { throw SyncError.pairingFailed }
             return device
         } catch {
             throw .pairingFailed
@@ -721,9 +699,7 @@ public actor SyncEngine {
     }
 }
 
-// MARK: - joining and recovering
-
-/// the new device's side of pairing: scan, show the code, wait to be added.
+/// the new device's side of pairing: scan, show the code, wait to be added
 public actor SyncJoiner {
     let api: SyncAPI
     let origin: URL
@@ -737,7 +713,9 @@ public actor SyncJoiner {
     let deviceName: String
 
     public init(code: String, deviceName: String) throws(SyncError) {
-        guard code.hasPrefix("pounce-pair:"), let raw = Data(base64URL: String(code.dropFirst(12))) else {
+        guard code.hasPrefix(PairingInvite.prefix),
+            let raw = Data(base64URL: String(code.dropFirst(PairingInvite.prefix.count)))
+        else {
             throw .badPairingCode
         }
         var reader = SSHReader([UInt8](raw))
@@ -760,10 +738,8 @@ public actor SyncJoiner {
         self.deviceName = deviceName
     }
 
-    public var server: String { api.originText }
-
     /// sends this device's public keys and waits for the signed answer; returns
-    /// the code to compare with the other device.
+    /// the code to compare with the other device
     public func join() async throws(SyncError) -> String {
         let payload = SyncCrypto.message(
             .text("pounce/v1/join"), .bytes(deviceID), .bytes(try keys.signPub), .bytes(try keys.kemPub),
@@ -789,7 +765,7 @@ public actor SyncJoiner {
     }
 
     /// waits until the other device approves, then checks the whole roster: the
-    /// inviter from the qr code and this device must both be in it.
+    /// inviter from the qr code and this device must both be in it
     public func finish(stateURL: URL, vault: any SyncVault, hooks: SyncHooks) async throws(SyncError) -> SyncEngine {
         let signer = try keys.signer()
         let deadline = Date.now.addingTimeInterval(600)
@@ -814,16 +790,14 @@ public actor SyncJoiner {
         try vault.saveDeviceKeys(keys)
         let state = SyncState(origin: origin, accountID: accountID, deviceID: deviceID, roster: roster)
         let engine = try SyncEngine(state: state, vault: vault, stateURL: stateURL, hooks: hooks)
-        await engine.persist()
+        await engine.save()
         return engine
     }
 }
 
 extension SyncEngine {
-    fileprivate func persist() { save() }
-
     /// signs in with the recovery code, then replaces every device with this one
-    /// and rotates, all in one roster append. the code stays the same.
+    /// and rotates, all in one roster append. the code stays the same
     public static func recover(
         origin: URL, code text: String, deviceName: String, stateURL: URL, vault: any SyncVault, hooks: SyncHooks
     ) async throws(SyncError) -> SyncEngine {
@@ -865,7 +839,8 @@ extension SyncEngine {
             let rotate = next.body(.init(action: .rotate, epoch: next.epoch + 1, signerID: deviceID))
             let rotateSig = try SyncCrypto.sign(rotate, with: signer)
             try next.apply(rotate, rotateSig)
-            old[next.epoch] = SymmetricKey(size: .bits256)
+            let newest = SymmetricKey(size: .bits256)
+            old[next.epoch] = newest
 
             var wrapped: [WireKey] = []
             for (epoch, key) in old.sorted(by: { $0.key < $1.key }) {
@@ -874,28 +849,26 @@ extension SyncEngine {
                         key, epoch: epoch, account: account, to: (deviceID, device.kemPub), signer: signer,
                         signerID: deviceID))
             }
-            if let newest = old[next.epoch] {
-                wrapped.append(
-                    try wrap(
-                        newest, epoch: next.epoch, account: account, to: (next.recoveryID, next.recoveryKemPub),
-                        signer: signer, signerID: deviceID))
-            }
-            let head = try await api.appendRoster(
+            wrapped.append(
+                try wrap(
+                    newest, epoch: next.epoch, account: account, to: (next.recoveryID, next.recoveryKemPub),
+                    signer: signer, signerID: deviceID))
+            let appended = try await api.appendRoster(
                 token: token, head: roster.count - 1,
                 entries: [
                     WireEntry(entry: B64(recover), sig: B64(recoverSig)),
                     WireEntry(entry: B64(rotate), sig: B64(rotateSig)),
                 ],
                 keys: wrapped)
-            guard head != nil else { continue }
+            guard appended else { continue }
 
             try vault.saveDeviceKeys(keys)
             try vault.saveEpochKeys(old.mapValues { $0.withUnsafeBytes { Data($0) } })
             let state = SyncState(origin: origin, accountID: account, deviceID: deviceID, roster: next)
             let engine = try SyncEngine(state: state, vault: vault, stateURL: stateURL, hooks: hooks)
-            await engine.persist()
+            await engine.save()
             return engine
         }
-        throw .server(status: 412, code: "precondition_failed")
+        throw conflict
     }
 }

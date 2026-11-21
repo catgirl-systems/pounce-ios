@@ -1,6 +1,5 @@
 import Foundation
 
-/// secure enclave keys are p-256 keys whose private half never leaves the enclave.
 public enum KeyKind: String, Codable, Sendable {
     case ed25519
     case ecdsaP256
@@ -25,14 +24,13 @@ public enum KeyKind: String, Codable, Sendable {
         self = kind
     }
 
-    /// always `ssh-rsa` for rsa; rsa-sha2-256/512 is negotiated separately.
+    /// always `ssh-rsa` for rsa: rsa-sha2-256/512 is negotiated separately
     var algorithm: String {
         if let curve { return "ecdsa-sha2-" + curve.name }
         return self == .rsa ? "ssh-rsa" : "ssh-ed25519"
     }
 }
 
-/// messages are written for the person holding the phone.
 public enum KeyError: Error, LocalizedError, Equatable, Sendable {
     case passphraseRequired
     case wrongPassphrase
@@ -42,7 +40,6 @@ public enum KeyError: Error, LocalizedError, Equatable, Sendable {
     case publicKeyOnly
     case secureEnclaveUnavailable
     case secureEnclaveFailed(String)
-    case wrongKeyKind
 
     public var errorDescription: String? {
         switch self {
@@ -54,17 +51,13 @@ public enum KeyError: Error, LocalizedError, Equatable, Sendable {
         case .publicKeyOnly: "This is a public key. Import the private key instead (the file without .pub)."
         case .secureEnclaveUnavailable: "This device has no Secure Enclave."
         case .secureEnclaveFailed(let reason): "The Secure Enclave couldn't use the key: \(reason)."
-        case .wrongKeyKind: "This operation doesn't apply to this kind of key."
         }
     }
-}
 
-extension KeyError {
     static let dsaObsolete = KeyError.unsupported("DSA keys are obsolete and disabled in modern OpenSSH")
 }
 
-/// runs a cryptokit/security call whose untyped error means the key bytes are bad.
-@inline(__always)
+/// any cryptokit or security error here means the key bytes are bad
 func keyAttempt<T>(_ body: () throws -> T) throws(KeyError) -> T {
     do { return try body() } catch { throw .malformed }
 }

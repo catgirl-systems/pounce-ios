@@ -2,8 +2,6 @@ import AppIntents
 import Foundation
 import PounceCore
 
-// MARK: - hosts
-
 struct CreateHostIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Create Host"
@@ -48,7 +46,6 @@ struct CreateHostIntent: AppIntent {
     }
 }
 
-/// only the values given change.
 struct EditHostIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Edit Host"
@@ -131,7 +128,7 @@ struct RemoveTagsIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<[HostEntity]> {
         .result(
             value: updateHosts(hosts) { host in
-                host.tags.removeAll { tag in tags.contains { $0.localizedCaseInsensitiveCompare(tag) == .orderedSame } }
+                host.tags.removeAll { tag in tags.contains { $0.equalsIgnoringCase(tag) } }
             })
     }
 }
@@ -159,7 +156,7 @@ struct DeleteHostIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Delete Host"
     static let description = IntentDescription(
-        "Deletes a host, its tunnels and its saved password. Asks first.", categoryName: "Hosts")
+        "Deletes a host, its tunnels and its saved password, after asking.", categoryName: "Hosts")
 
     @Parameter(title: "Host") var host: HostEntity
 
@@ -205,17 +202,14 @@ struct ImportSSHConfigIntent: AppIntent {
 }
 
 extension [String] {
-    /// trimmed, without blanks or case-insensitive repeats.
     fileprivate var cleanedTags: [String] {
         var seen: [String] = []
         for tag in map({ $0.trimmingCharacters(in: .whitespaces) }) where !tag.isEmpty {
-            if !seen.contains(where: { $0.localizedCaseInsensitiveCompare(tag) == .orderedSame }) { seen.append(tag) }
+            if !seen.contains(where: { $0.equalsIgnoringCase(tag) }) { seen.append(tag) }
         }
         return seen
     }
 }
-
-// MARK: - snippets
 
 struct CreateSnippetIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
@@ -247,7 +241,7 @@ struct CreateSnippetIntent: AppIntent {
 struct DeleteSnippetIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Delete Snippet"
-    static let description = IntentDescription("Deletes a snippet. Asks first.", categoryName: "Snippets")
+    static let description = IntentDescription("Deletes a snippet after asking.", categoryName: "Snippets")
 
     @Parameter(title: "Snippet") var snippet: SnippetEntity
 
@@ -261,8 +255,6 @@ struct DeleteSnippetIntent: AppIntent {
         return .result()
     }
 }
-
-// MARK: - keys
 
 enum NewKeyKind: String, AppEnum {
     case ed25519, secureEnclave

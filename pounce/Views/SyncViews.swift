@@ -125,7 +125,7 @@ struct SyncView: View {
                 }
             }
             Button("Add Device", systemImage: "plus") { sheet = .add }
-                .disabled(sync.devices.count >= 32)
+                .disabled(sync.devices.count >= SyncEngine.maxDevices)
         } header: {
             Text("Devices")
         } footer: {
@@ -153,8 +153,6 @@ struct SyncView: View {
         }
     }
 }
-
-// MARK: - create
 
 private struct CreateSyncView: View {
     @Environment(AppModel.self) private var app
@@ -211,7 +209,6 @@ private struct CreateSyncView: View {
     }
 }
 
-/// shown once: pounce doesn't keep the code.
 private struct RecoveryCodeView: View {
     let code: RecoveryCode
     let done: () -> Void
@@ -221,13 +218,11 @@ private struct RecoveryCodeView: View {
     var body: some View {
         Form {
             Section {
-                Text(
-                    code.text.split(separator: "-").chunked(4).map { $0.joined(separator: " ") }.joined(separator: "\n")
-                )
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                Text(grouped)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
                 Button("Copy Recovery Code", systemImage: "doc.on.doc") {
                     app.copy(code.text, notice: "Recovery code copied", subtitle: "Store it in a password manager")
                 }
@@ -249,15 +244,14 @@ private struct RecoveryCodeView: View {
         }
         .sensoryFeedback(.selection, trigger: saved)
     }
-}
 
-extension Array {
-    fileprivate func chunked(_ size: Int) -> [[Element]] {
-        stride(from: 0, to: count, by: size).map { Array(self[$0..<Swift.min($0 + size, count)]) }
+    private var grouped: String {
+        let words = code.text.split(separator: "-")
+        return stride(from: 0, to: words.count, by: 4)
+            .map { words[$0..<min($0 + 4, words.count)].joined(separator: " ") }
+            .joined(separator: "\n")
     }
 }
-
-// MARK: - join
 
 private struct JoinSyncView: View {
     @Environment(AppModel.self) private var app
@@ -322,8 +316,8 @@ private struct JoinSyncView: View {
                 if step == .scanning {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Paste", systemImage: "doc.on.clipboard") {
-                            // a stray qr code is ignored quietly; an explicit paste isn't.
-                            guard let text = UIPasteboard.general.string, text.hasPrefix("pounce-pair:") else {
+                            // a stray qr code is ignored quietly, an explicit paste isn't
+                            guard let text = UIPasteboard.general.string, text.hasPrefix(PairingInvite.prefix) else {
                                 return app.fail("That isn't a pairing code")
                             }
                             scanned(text)
@@ -339,7 +333,7 @@ private struct JoinSyncView: View {
     }
 
     private func scanned(_ payload: String) {
-        guard step == .scanning, payload.hasPrefix("pounce-pair:") else { return }
+        guard step == .scanning, payload.hasPrefix(PairingInvite.prefix) else { return }
         let joiner: SyncJoiner
         do {
             joiner = try SyncJoiner(code: payload, deviceName: SyncController.defaultDeviceName)
@@ -362,8 +356,6 @@ private struct JoinSyncView: View {
         }
     }
 }
-
-// MARK: - add a device
 
 private struct AddDeviceView: View {
     @Environment(AppModel.self) private var app
@@ -392,15 +384,8 @@ private struct AddDeviceView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                } else if let invite, let image = QRCodeSheet.render(invite.code) {
-                    Image(uiImage: image)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(16)
-                        .background(.white, in: .rect(cornerRadius: 20))
-                        .frame(maxWidth: 320)
-                        .accessibilityLabel("Pairing QR code")
+                } else if let invite {
+                    QRCodeImage(text: invite.code, label: "Pairing QR code")
                     Text("On the new device, open Settings › Sync › Join from Another Device and scan this code.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -416,17 +401,10 @@ private struct AddDeviceView: View {
             .padding()
             .navigationTitle("Add Device")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", systemImage: "xmark") { dismiss() }
-                }
-            }
             .animation(.snappy, value: request?.code)
             .sensoryFeedback(.impact, trigger: request?.code)
-            .overlay(alignment: .top) { NoticeBanner() }
+            .dismissToolbar("Cancel", cancel: true)
         }
-        .presentationDetents([.large])
-        // cancelled when the sheet goes away.
         .task { await start() }
     }
 
@@ -458,8 +436,6 @@ private struct AddDeviceView: View {
         }
     }
 }
-
-// MARK: - recover
 
 private struct RecoverSyncView: View {
     @Environment(AppModel.self) private var app
@@ -513,9 +489,6 @@ private struct RecoverSyncView: View {
     }
 }
 
-// MARK: - after a removal
-
-/// what the removed device may have kept, and what to do about it.
 private struct ExposureView: View {
     @Environment(AppModel.self) private var app
 

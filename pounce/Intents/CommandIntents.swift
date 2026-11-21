@@ -3,7 +3,6 @@ import Foundation
 import PounceCore
 import SwiftUI
 
-/// works without opening the app, for hosts whose key is already trusted.
 struct RunCommandIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Run SSH Command"
@@ -42,7 +41,7 @@ struct RunCommandIntent: AppIntent {
     }
 }
 
-/// pounce has no sftp; piping into `cat > file` or `tar x` covers a lot of it.
+/// pounce has no sftp; piping into `cat > file` or `tar x` covers a lot of it
 struct RunCommandWithInputIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let title: LocalizedStringResource = "Run SSH Command with Input"
@@ -66,12 +65,13 @@ struct RunCommandWithInputIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<CommandResultEntity> & ShowsSnippetView {
         guard let saved = AppModel.shared.host(host.id) else { throw IntentError.missing }
-        // checked on disk first, so a huge file isn't read just to be refused.
-        let size = (try? input.fileURL?.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        let data = size > Self.maxInput ? Data(count: size) : input.data
-        guard data.count <= Self.maxInput else {
+        // checked on disk first, so a huge file isn't read just to be refused
+        var size = (try? input.fileURL?.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        let data = size > Self.maxInput ? Data() : input.data
+        size = max(size, data.count)
+        guard size <= Self.maxInput else {
             throw IntentError.failed(
-                "The input is \(data.count.formatted(.byteCount(style: .file))); the most pounce sends is 64 MB.")
+                "The input is \(size.formatted(.byteCount(style: .file))); the most pounce sends is 64 MB.")
         }
         try await unlockSecrets(for: [saved])
         let result = await CommandRunner.run(command, on: saved, input: data, timeout: timeout)
@@ -132,13 +132,9 @@ struct RunSnippetOnHostIntent: AppIntent {
         guard let saved = AppModel.shared.host(host.id), let snippet = AppModel.shared.snippet(snippet.id) else {
             throw IntentError.missing
         }
-        let placeholders = snippet.placeholders
-        guard values.count >= placeholders.count else {
-            throw IntentError.failed("“\(snippet.name)” needs values for \(placeholders.formatted()).")
-        }
+        let fills = try snippet.placeholderValues(values)
         try await unlockSecrets(for: [saved])
-        let filled = snippet.filled(Dictionary(uniqueKeysWithValues: zip(placeholders, values)))
-        let result = await CommandRunner.run(filled, on: saved, timeout: timeout)
+        let result = await CommandRunner.run(snippet.filled(fills), on: saved, timeout: timeout)
         if let failure = result.failure { throw IntentError.failed(failure) }
         return .result(value: result, view: CommandOutputView(results: [result]))
     }
@@ -168,15 +164,13 @@ struct TestConnectionIntent: AppIntent {
                 .units(allowed: [.seconds, .milliseconds], width: .narrow))
             return .result(value: true, dialog: "Signed in to \(saved.displayName) in \(elapsed).")
         } catch SSHError.hostKeyRejected {
-            return .result(
-                value: false, dialog: "Connect to \(saved.displayName) in pounce once to trust its host key.")
+            return .result(value: false, dialog: "\(saved.untrustedKeyHint)")
         } catch {
             return .result(value: false, dialog: "\(error.localizedDescription)")
         }
     }
 }
 
-/// the last lines of each result, in the terminal's font.
 struct CommandOutputView: View {
     let results: [CommandResultEntity]
 
@@ -192,14 +186,14 @@ struct CommandOutputView: View {
                         .foregroundStyle(result.succeeded ? Color.secondary : Color.red)
                     }
                     let text = result.failure ?? result.text
+                    let lines = results.count > 1 ? 6 : 20
                     if !text.isEmpty {
                         Text(
-                            text.split(separator: "\n", omittingEmptySubsequences: false).suffix(
-                                results.count > 1 ? 6 : 20
-                            ).joined(separator: "\n")
+                            text.split(separator: "\n", omittingEmptySubsequences: false).suffix(lines).joined(
+                                separator: "\n")
                         )
                         .font(.system(.footnote, design: .monospaced))
-                        .lineLimit(results.count > 1 ? 6 : 20)
+                        .lineLimit(lines)
                     }
                 }
             }

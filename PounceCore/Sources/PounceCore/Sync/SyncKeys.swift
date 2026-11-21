@@ -52,7 +52,7 @@ public enum SyncError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
-/// a device's private keys, kept in the keychain: raw p-256 scalars.
+/// raw p-256 scalars, kept in the keychain
 public struct DeviceKeys: Codable, Sendable {
     public var signing: Data
     public var agreement: Data
@@ -78,9 +78,9 @@ public struct DeviceKeys: Codable, Sendable {
 }
 
 /// the account id and a 32-byte secret with a 2-byte check, as 80 crockford
-/// base32 characters in groups of five. the recovery keys derive from it.
+/// base32 characters in groups of five. the recovery keys derive from it
 public struct RecoveryCode: Sendable, Equatable {
-    public let accountID: Data
+    let accountID: Data
     let secret: Data
 
     private static let alphabet = Array("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
@@ -112,7 +112,7 @@ public struct RecoveryCode: Sendable, Equatable {
             .joined(separator: "-")
     }
 
-    /// forgiving about case, spaces, dashes and the letters crockford folds.
+    /// forgiving about case, spaces, dashes and the letters crockford folds
     public init?(text: String) {
         var buffer = 0
         var bits = 0
@@ -141,20 +141,17 @@ public struct RecoveryCode: Sendable, Equatable {
     var id: Data { derive("id", count: 16) }
 
     func signer() throws(SyncError) -> P256.Signing.PrivateKey {
-        // a derived scalar is out of range with odds of about 2^-32; the counter moves past it.
-        for attempt in 0..<8 {
-            if let key = try? P256.Signing.PrivateKey(rawRepresentation: derive("sign/\(attempt)", count: 32)) {
-                return key
-            }
-        }
-        throw .crypto
+        try scalar("sign") { try P256.Signing.PrivateKey(rawRepresentation: $0) }
     }
 
     func agreer() throws(SyncError) -> P256.KeyAgreement.PrivateKey {
+        try scalar("kem") { try P256.KeyAgreement.PrivateKey(rawRepresentation: $0) }
+    }
+
+    private func scalar<Key>(_ label: String, _ make: (Data) throws -> Key) throws(SyncError) -> Key {
+        // a derived scalar is out of range with odds of about 2^-32; the counter moves past it
         for attempt in 0..<8 {
-            if let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: derive("kem/\(attempt)", count: 32)) {
-                return key
-            }
+            if let key = try? make(derive("\(label)/\(attempt)", count: 32)) { return key }
         }
         throw .crypto
     }
@@ -168,7 +165,6 @@ public struct RecoveryCode: Sendable, Equatable {
     }
 }
 
-/// where the sync engine keeps its secrets. the app uses the keychain.
 public protocol SyncVault: Sendable {
     func deviceKeys() throws(SyncError) -> DeviceKeys?
     func saveDeviceKeys(_ keys: DeviceKeys) throws(SyncError)
@@ -178,6 +174,6 @@ public protocol SyncVault: Sendable {
     func deleteIdentityKey(identity: UUID)
     func savePassword(_ password: String, host: UUID) throws(SyncError)
     func deletePassword(host: UUID)
-    /// the device and epoch keys only; synced keys and passwords stay.
+    /// the device and epoch keys only; synced keys and passwords stay
     func wipe()
 }

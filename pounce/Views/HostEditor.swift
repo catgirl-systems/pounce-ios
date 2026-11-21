@@ -73,7 +73,7 @@ struct HostEditor: View {
                     }
                     .onDelete { host.jumpHostIDs.remove(atOffsets: $0) }
                     .onMove { host.jumpHostIDs.move(fromOffsets: $0, toOffset: $1) }
-                    // not hosts that already reach this one through their own jumps.
+                    // skip hosts that already reach this one through their own jumps
                     let candidates = app.hosts.filter { candidate in
                         !host.jumpHostIDs.contains(candidate.id)
                             && (try? app.jumpChain(for: candidate))?.contains { $0.id == host.id } == false
@@ -103,12 +103,14 @@ struct HostEditor: View {
                                     Button {
                                         withAnimation(.snappy) { host.tags.removeAll { $0 == tag } }
                                     } label: {
-                                        Label(tag, systemImage: "xmark")
-                                            .labelStyle(TrailingIconLabelStyle())
-                                            .font(.subheadline)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 5)
-                                            .background(.tint.opacity(0.15), in: .capsule)
+                                        HStack(spacing: 4) {
+                                            Text(tag)
+                                            Image(systemName: "xmark").imageScale(.small).foregroundStyle(.secondary)
+                                        }
+                                        .font(.subheadline)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(.tint.opacity(0.15), in: .capsule)
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("Remove tag \(tag)")
@@ -124,8 +126,8 @@ struct HostEditor: View {
                         .submitLabel(.done)
                 }
 
-                Section {
-                    // a menu rather than a picker, so it can also offer to make a new snippet.
+                Section("Terminal") {
+                    // a menu rather than a picker, so it can also offer to make a new snippet
                     LabeledContent("Startup Snippet") {
                         Menu {
                             Picker("Startup Snippet", selection: $host.startupSnippetID) {
@@ -149,10 +151,6 @@ struct HostEditor: View {
                         Text("Default").tag(String?.none)
                         ForEach(TerminalTheme.all) { theme in Text(theme.name).tag(String?.some(theme.id)) }
                     }
-                } header: {
-                    Text("Terminal")
-                } footer: {
-                    Text("The startup snippet runs once the shell opens.")
                 }
             }
             .editorToolbar(isNew ? "New Host" : host.displayName, disabled: !isValid, action: save)
@@ -176,7 +174,7 @@ struct HostEditor: View {
         host.username = host.username.trimmingCharacters(in: .whitespaces)
         let wasSyncing = app.host(host.id)?.syncsPassword ?? false
         if removePassword { Keychain.deletePassword(for: host.id) }
-        // a replacement typed after removing keeps its sync switch.
+        // a replacement typed after removing keeps its sync switch
         if password.isEmpty, removePassword || !hasPassword { host.syncsPassword = false }
         app.save(host)
         if !password.isEmpty {
@@ -190,14 +188,5 @@ struct HostEditor: View {
             app.uploadPassword(existing, for: host.id)
         }
         dismiss()
-    }
-}
-
-private struct TrailingIconLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.title
-            configuration.icon.imageScale(.small).foregroundStyle(.secondary)
-        }
     }
 }

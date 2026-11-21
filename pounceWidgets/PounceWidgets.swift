@@ -9,14 +9,13 @@ struct PounceWidgets: WidgetBundle {
     }
 }
 
-/// only the glue to activitykit; the views are in `ActivityViews.swift`.
 struct SessionsLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: SessionsActivity.self) { context in
             let model = context.model
             LockScreenView(model: model)
                 .widgetURL(URL(string: "pounce://sessions"))
-                // the same colour as the bottom of the picture, for the edges.
+                // matches the bottom of the picture so the edges blend in
                 .activityBackgroundTint(GardenScene.ground(at: model.state.clock))
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
@@ -60,8 +59,8 @@ struct SessionsLiveActivity: Widget {
 }
 
 extension ActivityViewContext<SessionsActivity> {
-    /// past the background deadline the app may have been suspended before it
-    /// could say so: show it as paused.
+    /// past the background deadline the app may be suspended before it could
+    /// say so, so show it as paused
     fileprivate var model: ActivityModel {
         ActivityModel(
             state: state, phase: isStale && state.phase == .background ? .paused : state.phase,

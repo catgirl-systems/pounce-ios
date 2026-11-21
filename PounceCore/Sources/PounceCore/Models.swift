@@ -1,6 +1,5 @@
 import Foundation
 
-/// never holds secrets: keys and passwords live in the keychain.
 public struct Host: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var label: String
@@ -15,7 +14,6 @@ public struct Host: Codable, Hashable, Identifiable, Sendable {
     public var startupSnippetID: UUID?
     public var themeID: String?
     public var icon: String?
-    /// opt-in: the saved password goes to the sync account, end-to-end encrypted.
     public var syncsPassword: Bool
 
     public init(
@@ -42,11 +40,10 @@ public struct Host: Codable, Hashable, Identifiable, Sendable {
 
     public var displayName: String { label.isEmpty ? address : label }
 
-    public var address: String { SSHEndpoint(host: hostname, port: port, username: username).description }
+    public var address: String { endpoint.description }
 
     public var endpoint: SSHEndpoint { SSHEndpoint(host: hostname, port: port, username: username) }
 
-    // tolerates files written before newer fields existed.
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -66,19 +63,18 @@ public struct Host: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-/// public half only; the private key is in the keychain or secure enclave.
+/// public half only, the private key is in the keychain or secure enclave
 public struct Identity: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var kind: KeyKind
-    /// an `authorized_keys` line.
+    /// an `authorized_keys` line
     public var publicKey: String
     public var created: Date
     public var requiresBiometry: Bool
     public var icon: String?
-    /// opt-in: the private key goes to the sync account, end-to-end encrypted.
     public var syncsKey: Bool
-    /// set when a device that held the synced private key was removed.
+    /// set when a device that held the synced private key was removed
     public var exposedAt: Date?
 
     public init(
@@ -149,7 +145,7 @@ public struct Tunnel: Codable, Hashable, Identifiable, Sendable {
     public var displayName: String { name.isEmpty ? summary : name }
 }
 
-/// `{{name}}` placeholders are asked for when it runs.
+/// `{{name}}` placeholders are asked for when it runs
 public struct Snippet: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
@@ -163,7 +159,6 @@ public struct Snippet: Codable, Hashable, Identifiable, Sendable {
         self.runImmediately = runImmediately
     }
 
-    /// in order of first appearance.
     public var placeholders: [String] {
         var seen: [String] = []
         var rest = command[...]
@@ -185,9 +180,7 @@ public struct Snippet: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-/// keyed by host and port like openssh's `known_hosts`.
 public struct KnownHost: Codable, Hashable, Identifiable, Sendable {
-    /// files from before sync get one on first load.
     public var id: UUID
     public var host: String
     public var port: Int
@@ -203,9 +196,7 @@ public struct KnownHost: Codable, Hashable, Identifiable, Sendable {
         self.key = key
         self.added = added
     }
-}
 
-extension KnownHost {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -214,5 +205,20 @@ extension KnownHost {
         algorithm = try c.decode(String.self, forKey: .algorithm)
         key = try c.decode(Data.self, forKey: .key)
         added = try c.decode(Date.self, forKey: .added)
+    }
+}
+
+extension Array where Element: Identifiable {
+    /// setting replaces or appends the element; setting nil removes it
+    public subscript(id id: Element.ID?) -> Element? {
+        get { first { $0.id == id } }
+        set {
+            guard let newValue else { return removeAll { $0.id == id } }
+            if let index = firstIndex(where: { $0.id == newValue.id }) {
+                self[index] = newValue
+            } else {
+                append(newValue)
+            }
+        }
     }
 }

@@ -2,9 +2,8 @@ import CoreLocation
 import Foundation
 import Observation
 
-/// ios has no background mode for plain network connections, so this keeps
-/// coarse location updates on while something is open (as other ssh clients
-/// do). the locations are ignored: never stored, logged or sent.
+/// ios has no background mode for network connections, so coarse location updates stay
+/// on while something is open, as in other ssh clients; locations are never stored, logged or sent
 @MainActor final class BackgroundKeeper: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var wanted = false
@@ -16,7 +15,7 @@ import Observation
     override init() {
         super.init()
         manager.delegate = self
-        // as coarse and rare as possible: only being on matters.
+        // as coarse and rare as possible: only being on matters
         manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
         manager.distanceFilter = CLLocationDistanceMax
         manager.pausesLocationUpdatesAutomatically = false
@@ -38,7 +37,7 @@ import Observation
         }
     }
 
-    /// asks for location right away so the prompt shows up next to the switch.
+    /// asks for location right away so the prompt shows up next to the switch
     func settingChanged() {
         guard Self.isEnabled else { return stop() }
         if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
@@ -49,7 +48,7 @@ import Observation
         guard wanted, Self.isEnabled, !isRunning else { return }
         switch manager.authorizationStatus {
         case .notDetermined:
-            // starts from the authorization callback once answered.
+            // starts from the authorization callback once answered
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
             manager.allowsBackgroundLocationUpdates = true
@@ -67,8 +66,6 @@ import Observation
         manager.allowsBackgroundLocationUpdates = false
         isRunning = false
     }
-
-    // MARK: `CLLocationManagerDelegate`
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         MainActor.assumeIsolated {

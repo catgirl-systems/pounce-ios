@@ -1,10 +1,9 @@
-import Foundation
 import NIOCore
 import NIOSSH
 import Synchronization
 
 /// lets a child channel be glued to a tcp socket or carry another ssh
-/// connection (jump hosts).
+/// connection (jump hosts)
 final class ChannelDataCodec: ChannelDuplexHandler {
     typealias InboundIn = SSHChannelData
     typealias InboundOut = ByteBuffer
@@ -17,7 +16,7 @@ final class ChannelDataCodec: ChannelDuplexHandler {
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let data = unwrapInboundIn(data)
-        // only the main stream is payload; extended data (stderr) is dropped.
+        // only the main stream is payload; extended data (stderr) is dropped
         guard data.type == .channel, case .byteBuffer(let buffer) = data.data else { return }
         context.fireChannelRead(wrapInboundOut(buffer))
     }
@@ -45,23 +44,22 @@ public final class TrafficCounter: Sendable {
     func connectionClosed() { open.subtract(1, ordering: .relaxed) }
 }
 
-/// adapted from swift-nio-ssh's port forwarding example.
+/// adapted from swift-nio-ssh's port forwarding example
 final class GlueHandler {
     private var partner: GlueHandler?
     private var context: ChannelHandlerContext?
     private var pendingRead = false
     /// ssh channels deliver data as soon as they open, which can be before the
-    /// socket on the other end has connected, so it's queued until then.
+    /// socket on the other end has connected, so it's queued until then
     private var queued: [NIOAny] = []
-    private var closeWhenAdded = false
-    /// eof that arrived before this side was active, queued like `queued`.
     private var eofWhenActive = false
-    /// set on the local side only, so each byte is counted once.
+    private var closeWhenActive = false
+    /// set on the local side only, so each byte is counted once
     private let counter: TrafficCounter?
 
     private init(counter: TrafficCounter?) { self.counter = counter }
 
-    /// the first handler goes on the local socket, the second on the ssh side.
+    /// the first handler goes on the local socket, the second on the ssh side
     static func matchedPair(counter: TrafficCounter?) -> (GlueHandler, GlueHandler) {
         let local = GlueHandler(counter: counter)
         let remote = GlueHandler(counter: nil)
@@ -79,7 +77,7 @@ final class GlueHandler {
     }
     private func partnerFlush() { context?.flush() }
     // flush before closing: eof often arrives before the read-complete that
-    // would have flushed, and closing drops unflushed writes.
+    // would have flushed, and closing drops unflushed writes
     private func partnerWriteEOF() {
         guard let context, context.channel.isActive, queued.isEmpty else {
             eofWhenActive = true
@@ -90,7 +88,7 @@ final class GlueHandler {
     }
     private func partnerCloseFull() {
         guard let context, context.channel.isActive else {
-            closeWhenAdded = true
+            closeWhenActive = true
             return
         }
         context.flush()
@@ -114,7 +112,7 @@ extension GlueHandler: ChannelDuplexHandler {
         self.context = context
         counter?.connectionOpened()
         // an outgoing socket joins its pipeline before it connects; queued data
-        // waits until it's active.
+        // waits until it's active
         if context.channel.isActive { drainQueue(context) }
         if context.channel.isWritable { partner?.partnerBecameWritable() }
     }
@@ -147,8 +145,8 @@ extension GlueHandler: ChannelDuplexHandler {
             eofWhenActive = false
             context.close(mode: .output, promise: nil)
         }
-        if closeWhenAdded {
-            closeWhenAdded = false
+        if closeWhenActive {
+            closeWhenActive = false
             context.close(promise: nil)
         }
     }

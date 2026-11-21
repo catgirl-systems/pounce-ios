@@ -1,11 +1,8 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// Dependencies, kept to the two that save real work:
-// - swift-nio-ssh: Apple's SSH protocol implementation (transport, auth,
-//   channels), vendored in ../Vendor with RSA added (see VENDORED.md).
-// - swift-nio-transport-services: runs NIO on Network.framework, which handles
-//   Wi-Fi/cellular handover on iOS and avoids pulling in NIOPosix.
+// swift-nio-ssh is vendored in ../Vendor with RSA added (see VENDORED.md). transport services
+// runs NIO on Network.framework for wifi/cellular handover, without NIOPosix
 let package = Package(
     name: "PounceCore",
     platforms: [.iOS("26.0"), .macOS("26.0")],

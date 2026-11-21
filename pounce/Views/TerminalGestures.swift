@@ -1,9 +1,8 @@
 import SwiftTerm
 import UIKit
 
-/// replaces swiftterm's touch handling: long press selects a word and extends
-/// with a loupe as the finger drags, handles stay draggable, double tap sends
-/// tab, and without scrollback (tmux, less, vim) swipes send wheel/arrow keys.
+/// replaces swiftterm's touch handling: long press selects and extends with a loupe,
+/// double tap sends tab, and without scrollback (tmux, vim) swipes send wheel or arrows
 @MainActor final class TerminalGestures: NSObject, UIGestureRecognizerDelegate {
     private unowned let view: TerminalView
     private let doubleTapped: () -> Void
@@ -11,17 +10,17 @@ import UIKit
     private let handlePan = UIPanGestureRecognizer()
     private let doubleTap = UITapGestureRecognizer()
     private let wheelPan = UIPanGestureRecognizer()
-    /// the end of the selection that stays put while the other one moves.
+    /// the end of the selection that stays put while the other one moves
     private var anchor = Position(col: 0, row: 0)
-    /// the word the long press landed on, kept whole while dragging past it.
+    /// the word the long press landed on, kept whole while dragging past it
     private var seed: (start: Position, end: Position)?
     private var loupe: UITextLoupeSession?
     private var autoscroll: Task<Void, Never>?
     private var lastFocus: Position?
     /// relative to the visible part of the terminal, for extending the
-    /// selection while it scrolls by itself.
+    /// selection while it scrolls by itself
     private var touch = CGPoint.zero
-    /// finger travel not yet turned into wheel or arrow steps.
+    /// finger travel not yet turned into wheel or arrow steps
     private var wheelTravel: CGFloat = 0
     private var wheelPoint = CGPoint.zero
     private var coast: Task<Void, Never>?
@@ -32,7 +31,7 @@ import UIKit
         super.init()
 
         // swiftterm's own long press only opens a menu with `Select`, and its
-        // double and triple taps select a word or a line. ours replace them.
+        // double and triple taps select a word or a line; ours replace them
         for recognizer in view.gestureRecognizers ?? [] {
             if recognizer is UILongPressGestureRecognizer
                 || (recognizer as? UITapGestureRecognizer)?.numberOfTapsRequired ?? 1 > 1
@@ -51,7 +50,7 @@ import UIKit
         handlePan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(handlePan)
         // scrolling waits for the handle drag to decline, which it does
-        // straight away unless the touch lands on a handle.
+        // straight away unless the touch lands on a handle
         view.panGestureRecognizer.require(toFail: handlePan)
 
         wheelPan.addTarget(self, action: #selector(swiped(_:)))
@@ -60,7 +59,7 @@ import UIKit
         view.addGestureRecognizer(wheelPan)
         wheelPan.require(toFail: handlePan)
         // same here: the wheel declines straight away when there's
-        // scrollback to scroll natively.
+        // scrollback to scroll natively
         view.panGestureRecognizer.require(toFail: wheelPan)
 
         doubleTap.addTarget(self, action: #selector(tappedTwice(_:)))
@@ -72,15 +71,11 @@ import UIKit
         }
     }
 
-    // MARK: double tap
-
     @objc private func tappedTwice(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended else { return }
         UIDevice.current.playInputClick()
         doubleTapped()
     }
-
-    // MARK: long press
 
     @objc private func pressed(_ gesture: UILongPressGestureRecognizer) {
         let point = gesture.location(in: view)
@@ -107,9 +102,7 @@ import UIKit
         }
     }
 
-    // MARK: handles
-
-    /// generous targets, since the drawn handles are small.
+    /// generous targets, since the drawn handles are small
     private func handle(at point: CGPoint) -> (moving: Position, fixed: Position)? {
         guard view.selection.active else { return nil }
         let cell = view.cellSize
@@ -127,7 +120,7 @@ import UIKit
         let point = gesture.location(in: view)
         switch gesture.state {
         case .began:
-            guard let grabbed = handle(at: gesture.location(in: view)) else { return }
+            guard let grabbed = handle(at: point) else { return }
             anchor = grabbed.fixed
             seed = nil
             lastFocus = nil
@@ -142,15 +135,13 @@ import UIKit
         }
     }
 
-    // MARK: extending
-
-    /// with a seed word, the word stays selected whichever way the finger goes.
     private func extend(to point: CGPoint) {
         loupe?.move(to: point, withCaretRect: .zero, trackingCaret: false)
         scrollIfNeeded(near: point)
         moveFocus(to: point)
     }
 
+    /// with a seed word, the word stays selected whichever way the finger goes
     private func moveFocus(to point: CGPoint) {
         let focus = view.bufferPosition(at: point)
         guard focus != lastFocus else { return }
@@ -191,15 +182,12 @@ import UIKit
     }
 
     /// dragging into the top or bottom band scrolls a line at a time, so a
-    /// selection can run past what's on screen.
+    /// selection can run past what's on screen
     private func scrollIfNeeded(near point: CGPoint) {
         let band = view.cellSize.height * 1.5
         touch = CGPoint(x: point.x, y: point.y - view.contentOffset.y)
         let y = touch.y
-        let step: CGFloat =
-            if y < band { -view.cellSize.height } else if y > view.bounds.height - band { view.cellSize.height } else {
-                0
-            }
+        let step: CGFloat = y < band ? -view.cellSize.height : y > view.bounds.height - band ? view.cellSize.height : 0
         guard step != 0 else {
             autoscroll?.cancel()
             autoscroll = nil
@@ -218,10 +206,8 @@ import UIKit
         }
     }
 
-    // MARK: wheel
-
     /// a vertical swipe goes to the remote program when it asked for the
-    /// mouse, or on the alternate screen, which has no scrollback of its own.
+    /// mouse, or on the alternate screen, which has no scrollback of its own
     private var swipesGoRemote: Bool {
         let terminal = view.getTerminal()
         return terminal.mouseMode != .off || terminal.isCurrentBufferAlternate
@@ -246,7 +232,7 @@ import UIKit
     }
 
     /// a wheel notch every two rows (tmux, vim and less scroll several lines
-    /// per notch), or an arrow key per row.
+    /// per notch), or an arrow key per row
     private func travel(_ distance: CGFloat) {
         let terminal = view.getTerminal()
         let wheel = terminal.mouseMode != .off
@@ -254,13 +240,13 @@ import UIKit
         guard step > 0 else { return }
         wheelTravel += distance
         while abs(wheelTravel) >= step {
-            // dragging down reveals what's above, like scrolling the history.
+            // dragging down reveals what's above, like scrolling the history
             let up = wheelTravel > 0
             wheelTravel -= up ? step : -step
             if wheel {
                 sendWheel(up: up)
             } else {
-                view.sendArrow(up ? 0x41 : 0x42)
+                view.sendArrow(up ? .up : .down)
             }
         }
     }
@@ -289,8 +275,6 @@ import UIKit
             }
         }
     }
-
-    // MARK: `UIGestureRecognizerDelegate`
 
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === handlePan { return handle(at: gesture.location(in: view)) != nil }

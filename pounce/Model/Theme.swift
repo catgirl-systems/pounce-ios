@@ -2,7 +2,7 @@ import SwiftTerm
 import SwiftUI
 import UIKit
 
-/// declared in code, so themes cost no assets.
+// declared in code, so themes cost no assets
 struct TerminalTheme: Identifiable, Hashable {
     let id: String
     let name: String
@@ -10,10 +10,10 @@ struct TerminalTheme: Identifiable, Hashable {
     let foreground: UInt32
     let cursor: UInt32
     /// black, red, green, yellow, blue, magenta, cyan, white, then the bright
-    /// variants in the same order.
+    /// variants in the same order
     let ansi: [UInt32]
 
-    var isDark: Bool { (UIColor(rgb: background).relativeLuminance) < 0.4 }
+    var isDark: Bool { UIColor(rgb: background).relativeLuminance < 0.4 }
 
     static let pounce = TerminalTheme(
         id: "pounce", name: "Pounce", background: 0x17120F, foreground: 0xF2E6D8, cursor: 0xE8833A,
@@ -60,7 +60,7 @@ struct TerminalTheme: Identifiable, Hashable {
                 0x15161E, 0xF7768E, 0x9ECE6A, 0xE0AF68, 0x7AA2F7, 0xBB9AF7, 0x7DCFFF, 0xA9B1D6,
                 0x414868, 0xF7768E, 0x9ECE6A, 0xE0AF68, 0x7AA2F7, 0xBB9AF7, 0x7DCFFF, 0xC0CAF5,
             ]),
-        // green-phosphor vt100 look: every color is a shade of green.
+        // green-phosphor vt100 look: every color is a shade of green
         TerminalTheme(
             id: "phosphor", name: "Phosphor", background: 0x0A100A, foreground: 0x41FF6E, cursor: 0x41FF6E,
             ansi: [
@@ -88,7 +88,7 @@ struct TerminalTheme: Identifiable, Hashable {
     }
 
     private static func terminalColor(_ rgb: UInt32) -> SwiftTerm.Color {
-        // swiftterm colors are 16 bits per channel.
+        // swiftterm colors are 16 bits per channel
         SwiftTerm.Color(
             red: UInt16((rgb >> 16) & 0xff) * 257, green: UInt16((rgb >> 8) & 0xff) * 257,
             blue: UInt16(rgb & 0xff) * 257)

@@ -4,9 +4,9 @@ import NIOSSH
 import NIOTransportServices
 import Synchronization
 
-/// closing stops listening; connections already open finish on their own.
+/// closing stops listening; connections already open finish on their own
 public final class PortForward: Sendable {
-    /// the port actually bound: locally for `-L` and `-D`, on the server for `-R`.
+    /// the port actually bound: locally for `-L` and `-D`, on the server for `-R`
     public let port: Int
     public let traffic: TrafficCounter
     private let stop: @Sendable () -> Void
@@ -53,7 +53,7 @@ extension SSHConnection {
     ) async throws(SSHError) -> PortForward {
         let traffic = TrafficCounter()
         // a second forward on the same server port would otherwise take over
-        // the first one's entry, then remove it when the server refuses.
+        // the first one's entry, then remove it when the server refuses
         guard remoteForwards.register(port: bindPort, target: (targetHost, targetPort), traffic: traffic) else {
             throw .forwardingRejected
         }
@@ -64,7 +64,7 @@ extension SSHConnection {
             remoteForwards.unregister(port: bindPort)
             throw .forwardingRejected
         }
-        // asked for port 0, the server picks one and channels arrive under that.
+        // asked for port 0, the server picks one and channels arrive under that
         let bound = response?.boundPort ?? bindPort
         if bound != bindPort { remoteForwards.move(from: bindPort, to: bound) }
         return PortForward(port: bound, traffic: traffic) { [self] in
@@ -84,18 +84,18 @@ extension SSHConnection {
     }
 
     /// binds on the connection's event loop so accepted sockets and ssh channels
-    /// can be glued without hopping threads.
+    /// can be glued without hopping threads
     private func listen(
         host: String, port: Int, accept: @escaping @Sendable (any Channel, TrafficCounter) throws -> Void
     ) async throws(SSHError) -> PortForward {
         let traffic = TrafficCounter()
         do {
-            let listener = try await NIOTSListenerBootstrap(group: eventLoop, childGroup: eventLoop)
+            let listener = try await NIOTSListenerBootstrap(group: channel.eventLoop, childGroup: channel.eventLoop)
                 .childChannelInitializer { inbound in
                     inbound.eventLoop.makeCompletedFuture { try accept(inbound, traffic) }
                 }
                 .childTCPOptions(interactiveTCPOptions())
-                // half-closure lets one side finish sending after the other is done.
+                // half-closure lets one side finish sending after the other is done
                 .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
                 .bind(host: host, port: port)
                 .get()
@@ -110,8 +110,6 @@ extension SSHConnection {
     }
 }
 
-// MARK: - remote forwards
-
 final class RemoteForwardRegistry: Sendable {
     private struct Entry: Sendable {
         var host: String
@@ -120,7 +118,6 @@ final class RemoteForwardRegistry: Sendable {
     }
     private let entries = Mutex<[Int: Entry]>([:])
 
-    /// false when the port already has a forward.
     func register(port: Int, target: (String, Int), traffic: TrafficCounter) -> Bool {
         entries.withLock {
             guard $0[port] == nil else { return false }
@@ -137,7 +134,7 @@ final class RemoteForwardRegistry: Sendable {
         _ = entries.withLock { $0.removeValue(forKey: port) }
     }
 
-    /// only `forwarded-tcpip` channels for ports we registered are accepted.
+    /// only `forwarded-tcpip` channels for ports we registered are accepted
     func accept(_ child: any Channel, type: SSHChannelType) -> EventLoopFuture<Void> {
         guard case .forwardedTCPIP(let info) = type,
             let entry = entries.withLock({ $0[info.listeningPort] })
@@ -165,10 +162,8 @@ final class RemoteForwardRegistry: Sendable {
     }
 }
 
-// MARK: - socks5
-
-/// minimal socks5 (rfc 1928): no auth, connect only, ipv4/ipv6/domain targets.
-/// once the target is reached it removes itself and glues the two channels.
+/// minimal socks5 (rfc 1928): no auth, connect only, ipv4/ipv6/domain targets;
+/// once the target is reached it removes itself and glues the two channels
 final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
@@ -194,15 +189,14 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
         guard var buf = buffer else { return }
         switch state {
         case .greeting:
-            guard let bytes = buf.getBytes(at: buf.readerIndex, length: min(buf.readableBytes, 2)), bytes.count == 2
-            else { return }
-            guard bytes[0] == 5 else { return fail(context) }
-            let count = Int(bytes[1])
-            guard buf.readableBytes >= 2 + count, let methods = buf.getBytes(at: buf.readerIndex + 2, length: count)
-            else { return }
+            // `getBytes` returns nil until enough bytes have arrived
+            guard let head = buf.getBytes(at: buf.readerIndex, length: 2) else { return }
+            guard head[0] == 5 else { return context.close(promise: nil) }
+            let count = Int(head[1])
+            guard let methods = buf.getBytes(at: buf.readerIndex + 2, length: count) else { return }
             buf.moveReaderIndex(forwardBy: 2 + count)
             buffer = buf
-            // 0x00: no authentication. anything else is refused with 0xff.
+            // 0x00 is no authentication; without it the client gets 0xff (no acceptable method)
             let accepted = methods.contains(0)
             let channel = context.channel
             context.writeAndFlush(wrapOutboundOut(channel.allocator.buffer(bytes: [5, accepted ? 0 : 0xFF])))
@@ -212,7 +206,7 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
             process(context: context)
         case .request:
             guard let target = parseRequest(&buf) else { return }
-            guard case .success(let (command, host, port)) = target else { return fail(context) }
+            guard case .success(let (command, host, port)) = target else { return context.close(promise: nil) }
             buffer = buf
             guard command == 1 else { return Self.reply(context.channel, status: 7) }
             state = .connecting
@@ -222,7 +216,7 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
         }
     }
 
-    /// returns nil until enough bytes arrive.
+    /// returns nil until enough bytes arrive
     private func parseRequest(_ buf: inout ByteBuffer) -> Result<(UInt8, String, Int), SSHError>? {
         guard let head = buf.getBytes(at: buf.readerIndex, length: min(buf.readableBytes, 5)), head.count >= 4 else {
             return nil
@@ -271,7 +265,7 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
                     handler.value.connected(inbound: inbound, glue: localBound.value, child: child)
                 }
             } catch {
-                // 0x05: connection refused.
+                // 0x05: connection refused
                 inbound.eventLoop.execute { Self.reply(inbound, status: 5) }
             }
         }
@@ -279,7 +273,7 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
 
     private func connected(inbound: any Channel, glue: GlueHandler, child: any Channel) {
         // the client gave up while the channel was opening: nothing would ever
-        // tell the far side, so close it here.
+        // tell the far side, so close it here
         guard inbound.isActive else { return child.close(promise: nil) }
         Self.reply(inbound, status: 0)
         let leftover = buffer.flatMap { $0.readableBytes > 0 ? $0 : nil }
@@ -297,11 +291,9 @@ final class SOCKS5Handler: ChannelInboundHandler, RemovableChannelHandler {
     }
 
     /// replies bound to 0.0.0.0:0 (clients ignore it), closing afterwards unless
-    /// the request succeeded.
+    /// the request succeeded
     private static func reply(_ channel: any Channel, status: UInt8) {
         channel.writeAndFlush(channel.allocator.buffer(bytes: [5, status, 0, 1, 0, 0, 0, 0, 0, 0]))
             .whenComplete { _ in if status != 0 { channel.close(promise: nil) } }
     }
-
-    private func fail(_ context: ChannelHandlerContext) { context.close(promise: nil) }
 }

@@ -63,7 +63,7 @@ struct SettingsView: View {
                     .onChange(of: keepAlive) { app.keeper.settingChanged() }
             } footer: {
                 Text(
-                    "Keeps sessions and tunnels open while pounce is in the background, using coarse location updates so iOS doesn't suspend it. Your location isn't stored or sent anywhere. Uses a little more battery. When this is off, connections pause about 30 seconds after you leave pounce."
+                    "Keeps sessions and tunnels open while pounce is in the background, using coarse location updates so iOS doesn't suspend it. Your location isn't stored or sent anywhere, and it uses a little more battery. When this is off, connections pause about 30 seconds after you leave pounce."
                 )
             }
             Section("Appearance") {
@@ -79,13 +79,13 @@ struct SettingsView: View {
                 }
             }
             Section {
-                Toggle(isOn: lockBinding) {
-                    Label("Lock with \(biometryName)", systemImage: Biometry.current.symbol)
+                Toggle(isOn: authenticated($appLock, reason: "the app lock")) {
+                    Label("Lock with \(Biometry.current.name)", systemImage: Biometry.current.symbol)
                 }
                 Toggle("Offer to Save Passwords", isOn: $savePasswords)
                 Toggle(
-                    "\(biometryName) to Fill Passwords",
-                    isOn: authenticated($fillNeedsBiometry, reason: "\(biometryName) for filling passwords"))
+                    "\(Biometry.current.name) to Fill Passwords",
+                    isOn: authenticated($fillNeedsBiometry, reason: "\(Biometry.current.name) for filling passwords"))
                 Toggle("Allow Shortcuts", isOn: authenticated($allowShortcuts, reason: "Shortcuts access"))
                 NavigationLink {
                     KnownHostsView()
@@ -96,7 +96,7 @@ struct SettingsView: View {
                 Text("Security")
             } footer: {
                 Text(
-                    "Keys and passwords stay in this \(Device.noun)'s Keychain and aren't included in backups. They sync only if you turn that on for a key or host. When a session asks for a password the host has saved, pounce offers to fill it in. Shortcuts can sign in with your keys and passwords to run commands and start tunnels; with the lock on, they ask for \(biometryName) first."
+                    "Keys and passwords stay in this \(Device.noun)'s Keychain and aren't included in backups. They sync only if you turn that on for a key or host. When a session asks for a password the host has saved, pounce offers to fill it in. Shortcuts can sign in with your keys and passwords to run commands and start tunnels; with the lock on, they ask for \(Biometry.current.name) first."
                 )
             }
             Section {
@@ -124,10 +124,8 @@ struct SettingsView: View {
         }
     }
 
-    /// asks for biometry first, so nobody locks themselves out.
-    private var lockBinding: Binding<Bool> { authenticated($appLock, reason: "the app lock") }
-
-    /// only changes after biometry (or the passcode) succeeds.
+    // changes only after biometry or the passcode succeeds, so nobody locks themselves out
+    // or turns a guard off without being the owner
     private func authenticated(_ value: Binding<Bool>, reason: String) -> Binding<Bool> {
         Binding(
             get: { value.wrappedValue },
@@ -140,15 +138,13 @@ struct SettingsView: View {
             })
     }
 
-    private var biometryName: String { Biometry.current.name }
-
     private var version: String {
         let info = Bundle.main.infoDictionary
         return "\(info?["CFBundleShortVersionString"] as? String ?? "") (\(info?["CFBundleVersion"] as? String ?? ""))"
     }
 }
 
-struct ThemePickerView: View {
+private struct ThemePickerView: View {
     @AppStorage("themeID") private var themeID = TerminalTheme.pounce.id
     @AppStorage("caretShape") private var caretShape = CaretShape.bar
     @AppStorage("caretAnimation") private var caretAnimation = CaretAnimation.pulse
@@ -216,7 +212,7 @@ struct ThemePickerView: View {
     }
 }
 
-struct KnownHostsView: View {
+private struct KnownHostsView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -226,7 +222,7 @@ struct KnownHostsView: View {
                     Text(known.port == 22 ? known.host : "[\(known.host)]:\(known.port)")
                         .font(.body.weight(.medium))
                     if let key = try? SSHPublicKey(blob: known.key) {
-                        // in full: this screen is where fingerprints get checked.
+                        // shown in full, since this screen is where fingerprints get checked
                         FingerprintText(fingerprint: key.fingerprint)
                             .foregroundStyle(.secondary)
                         Text("\(key.kind.label) · added \(known.added.formatted(date: .abbreviated, time: .omitted))")
@@ -254,11 +250,6 @@ struct KnownHostsView: View {
 private struct AcknowledgementsView: View {
     var body: some View {
         List {
-            Section {
-                Text("pounce is built on these open source projects. Thank you to their authors.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
             credit("SwiftNIO SSH", "Apple Inc. and the SwiftNIO project authors", "Apache License 2.0")
             credit("SwiftNIO", "Apple Inc. and the SwiftNIO project authors", "Apache License 2.0")
             credit("SwiftNIO Transport Services", "Apple Inc. and the SwiftNIO project authors", "Apache License 2.0")

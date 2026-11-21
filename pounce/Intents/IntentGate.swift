@@ -4,7 +4,7 @@ import PounceCore
 import UIKit
 import os
 
-let intentLog = Logger(subsystem: "catgirl.engineering.pounce", category: "intents")
+let intentLog = Logger(category: "intents")
 
 enum IntentError: Error, CustomLocalizedStringResourceConvertible {
     case missing
@@ -30,9 +30,8 @@ extension UserDefaults {
 }
 
 extension AppIntent {
-    /// for actions that sign in with keys or passwords. with the app lock on,
-    /// or a key that needs face id, it comes to the foreground first, since
-    /// biometry can't prompt from the background.
+    /// with the app lock on or a key that needs Face ID, pounce comes to the foreground
+    /// first, since biometry can't prompt from the background
     @MainActor func unlockSecrets(for hosts: [Host] = []) async throws {
         guard UserDefaults.allowsShortcuts else { throw IntentError.shortcutsOff }
         let app = AppModel.shared
@@ -50,24 +49,22 @@ extension AppIntent {
         guard await lock.unlock() else { throw IntentError.locked }
     }
 
-    /// tunnels outlive the shortcut only while pounce is allowed to stay
-    /// running, so without that it opens the app.
+    /// tunnels outlive the shortcut only while pounce is allowed to stay running,
+    /// so without that it opens the app
     @MainActor func stayAliveForConnections() async throws {
-        guard !UserDefaults.standard.bool(forKey: "keepAlive"), UIApplication.shared.applicationState != .active
+        guard !BackgroundKeeper.isEnabled, UIApplication.shared.applicationState != .active
         else { return }
         try await continueInForeground("Tunnels run while pounce is open.", alwaysConfirm: false)
     }
 }
 
-// MARK: - running commands
-
 enum CommandRunner {
-    /// never throws: failures land in the result, so one bad host doesn't
-    /// stop a run across many.
+    /// failures land in the result instead of throwing, so one bad host doesn't
+    /// stop a run across many
     @MainActor static func run(
         _ command: String, on host: Host, input: Data = Data(), timeout: Int
     ) async -> CommandResultEntity {
-        // `@Property` setters don't mutate the struct itself.
+        // `@Property` setters don't mutate the struct itself
         let result = CommandResultEntity()
         result.host = host.displayName
         let start = ContinuousClock.now
@@ -76,7 +73,7 @@ enum CommandRunner {
             result.duration = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
         }
         do {
-            // not interactive: an unknown host key fails instead of asking.
+            // not interactive: an unknown host key fails instead of asking
             let connection = try await AppModel.shared.connect(host, interactive: false)
             defer { connection.close() }
             let output = try await connection.run(command, input: input, timeout: .seconds(max(timeout, 1)))
@@ -85,7 +82,7 @@ enum CommandRunner {
             result.exitStatus = output.exitStatus
             result.succeeded = output.exitStatus == 0
         } catch SSHError.hostKeyRejected {
-            result.failure = "Connect to \(host.displayName) in pounce once to trust its host key."
+            result.failure = host.untrustedKeyHint
         } catch SSHError.timedOut {
             result.failure = "Timed out after \(timeout) seconds."
         } catch {
@@ -97,7 +94,7 @@ enum CommandRunner {
         return result
     }
 
-    /// runs on a few hosts at a time and keeps the order it was given.
+    /// four hosts at a time, results keep the order of `hosts`
     @MainActor static func run(
         _ command: String, on hosts: [Host], input: Data = Data(), timeout: Int
     ) async -> [CommandResultEntity] {
@@ -117,9 +114,22 @@ enum CommandRunner {
 }
 
 extension CommandResultEntity {
-    /// stdout, or stderr when there's none, like a terminal would show it.
     var text: String {
         let text = output.isEmpty ? errorOutput : output
         return text.trimmingCharacters(in: .newlines)
     }
+}
+
+extension Snippet {
+    func placeholderValues(_ values: [String]) throws -> [String: String] {
+        let names = placeholders
+        guard values.count >= names.count else {
+            throw IntentError.failed("“\(name)” needs values for \(names.formatted()).")
+        }
+        return Dictionary(uniqueKeysWithValues: zip(names, values))
+    }
+}
+
+extension String {
+    func equalsIgnoringCase(_ other: String) -> Bool { localizedCaseInsensitiveCompare(other) == .orderedSame }
 }

@@ -1,4 +1,3 @@
-import Foundation
 import NIOCore
 import NIOSSH
 import NIOTransportServices
@@ -6,7 +5,7 @@ import Network
 import Synchronization
 import os
 
-let sshLog = Logger(subsystem: "catgirl.engineering.pounce", category: "ssh")
+let sshLog = Logger(category: "ssh")
 
 public struct SSHEndpoint: Sendable, Hashable, CustomStringConvertible {
     public var host: String
@@ -22,7 +21,6 @@ public struct SSHEndpoint: Sendable, Hashable, CustomStringConvertible {
     public var description: String { port == 22 ? "\(username)@\(host)" : "\(username)@\(host):\(port)" }
 }
 
-/// keys are tried before passwords.
 public enum SSHCredential: Sendable {
     case password(String)
     case privateKey(NIOSSHPrivateKey)
@@ -38,16 +36,15 @@ public struct SSHHop: Sendable {
     }
 }
 
-public enum ConnectStage: Int, Sendable, Comparable {
+public enum ConnectStage: Sendable, Comparable {
     case connecting, securing, authenticating, ready
-    public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 }
 
-/// hop index 0 is the first jump host, or the target if there are none.
+/// hop index 0 is the first jump host, or the target if there are none
 public struct SSHConnectHandlers: Sendable {
-    /// asking the user is fine: the handshake waits.
+    /// asking the user is fine: the handshake waits
     public var verifyHostKey: @Sendable (_ hop: Int, _ endpoint: SSHEndpoint, _ key: SSHPublicKey) async -> Bool
-    /// only called once every stored password has failed.
+    /// only called once every stored password has failed
     public var askPassword: @Sendable (_ hop: Int, _ endpoint: SSHEndpoint) async -> String?
     public var progress: @Sendable (_ hop: Int, _ stage: ConnectStage) -> Void
 
@@ -62,15 +59,13 @@ public struct SSHConnectHandlers: Sendable {
     }
 }
 
-/// closing it closes the whole jump host chain.
+/// closing it closes the whole jump host chain
 public final class SSHConnection: Sendable {
-    public let endpoint: SSHEndpoint
     let channel: any Channel
     let parent: SSHConnection?
     let remoteForwards: RemoteForwardRegistry
 
-    private init(endpoint: SSHEndpoint, channel: any Channel, parent: SSHConnection?, registry: RemoteForwardRegistry) {
-        self.endpoint = endpoint
+    private init(channel: any Channel, parent: SSHConnection?, registry: RemoteForwardRegistry) {
         self.channel = channel
         self.parent = parent
         self.remoteForwards = registry
@@ -90,7 +85,7 @@ public final class SSHConnection: Sendable {
             throw error
         }
         guard let current else { throw .disconnected }
-        // keepalives on the last hop travel through every jump host too.
+        // keepalives on the last hop travel through every jump host too
         current.startHeartbeat()
         return current
     }
@@ -104,7 +99,7 @@ public final class SSHConnection: Sendable {
         handlers.progress(index, .connecting)
 
         // the first hop runs over tcp, later ones over a `direct-tcpip` channel
-        // through the previous hop.
+        // through the previous hop
         let setup: @Sendable (any Channel) throws -> Void = { channel in
             let delegate = HopDelegate(hop: hop, index: index, handlers: handlers, failure: failure)
             let ssh = NIOSSHHandler(
@@ -116,7 +111,7 @@ public final class SSHConnection: Sendable {
             let watcher = AuthWatcher(promise: authenticated, failure: failure)
             try channel.pipeline.syncOperations.addHandlers(ssh, watcher)
             // `NIOSSHHandler` doesn't forward `channelInactive`, so the watcher
-            // learns about the close from the close future.
+            // learns about the close from the close future
             let bound = NIOLoopBound(watcher, eventLoop: channel.eventLoop)
             channel.closeFuture.whenComplete { _ in bound.value.closed() }
         }
@@ -130,8 +125,8 @@ public final class SSHConnection: Sendable {
                 channel = try await NIOTSConnectionBootstrap(group: NIOTSEventLoopGroup.singleton)
                     .connectTimeout(.seconds(12))
                     .tcpOptions(interactiveTCPOptions())
-                    // fail fast on a refused port instead of letting network.framework
-                    // retry until the timeout.
+                    // fail fast on a refused port instead of letting Network.framework
+                    // retry until the timeout
                     .channelOption(NIOTSChannelOptions.waitForActivity, value: false)
                     .channelInitializer { channel in
                         channel.eventLoop.makeCompletedFuture { try setup(channel) }
@@ -153,35 +148,23 @@ public final class SSHConnection: Sendable {
         }
         sshLog.info("hop \(index) ready: \(hop.endpoint.description, privacy: .private)")
         handlers.progress(index, .ready)
-        return SSHConnection(endpoint: hop.endpoint, channel: channel, parent: parent, registry: registry)
+        return SSHConnection(channel: channel, parent: parent, registry: registry)
     }
 
-    /// `configure` runs on the event loop before the channel becomes active.
+    /// `configure` runs on the event loop before the channel becomes active
     func openChildChannel(
         type: SSHChannelType, configure: @escaping @Sendable (any Channel) throws -> Void
     ) async throws(SSHError) -> any Channel {
-        let channel = self.channel
-        let promise = channel.eventLoop.makePromise(of: (any Channel).self)
-        channel.eventLoop.execute {
-            do {
-                let ssh = try channel.pipeline.syncOperations.handler(type: NIOSSHHandler.self)
-                ssh.createChannel(promise, channelType: type) { child, _ in
-                    child.eventLoop.makeCompletedFuture { try configure(child) }
-                }
-            } catch {
-                promise.fail(error)
+        try await withHandler { ssh, loop in
+            let promise = loop.makePromise(of: (any Channel).self)
+            ssh.createChannel(promise, channelType: type) { child, _ in
+                child.eventLoop.makeCompletedFuture { try configure(child) }
             }
-        }
-        do {
-            return try await promise.futureResult.get()
-        } catch let error as NIOSSHError where error.type == .channelSetupRejected {
-            throw .channelRejected
-        } catch {
-            throw .wrap(error)
+            return promise.futureResult
         }
     }
 
-    /// `origin` is the address the server logs as the client.
+    /// `origin` is the address the server logs as the client
     func openDirect(
         host: String, port: Int, from origin: SocketAddress? = nil,
         configure: @escaping @Sendable (any Channel) throws -> Void
@@ -225,12 +208,9 @@ public final class SSHConnection: Sendable {
     public func waitUntilClosed() async {
         _ = try? await channel.closeFuture.get()
     }
-
-    var eventLoop: any EventLoop { channel.eventLoop }
 }
 
 extension EventLoopFuture where Value: Sendable {
-    /// closes `channel` if the waiting task is cancelled.
     func get(closing channel: any Channel) async throws -> Value {
         try await withTaskCancellationHandler {
             try await get()
@@ -241,7 +221,7 @@ extension EventLoopFuture where Value: Sendable {
 }
 
 /// no nagle delay, and tcp keepalives so a dead network is noticed within
-/// about a minute.
+/// about a minute
 func interactiveTCPOptions() -> NWProtocolTCP.Options {
     let options = NWProtocolTCP.Options()
     options.noDelay = true
@@ -252,17 +232,15 @@ func interactiveTCPOptions() -> NWProtocolTCP.Options {
     return options
 }
 
-// MARK: - delegates
-
-/// keeps the first failure our delegates report, which is more specific than
-/// the generic error nio raises afterwards.
+/// keeps only the first value: the first failure our delegates report is
+/// more specific than the generic error nio raises after it
 final class LockedBox<Value: Sendable>: Sendable {
     private let stored = Mutex<Value?>(nil)
     var value: Value? { stored.withLock { $0 } }
     func set(_ new: Value) { stored.withLock { if $0 == nil { $0 = new } } }
 }
 
-/// offers every key, then every stored password, then asks for one.
+/// offers every key, then every stored password, then asks for one
 final class HopDelegate: NIOSSHClientUserAuthenticationDelegate, NIOSSHClientServerAuthenticationDelegate {
     private let hop: SSHHop
     private let index: Int
@@ -303,11 +281,11 @@ final class HopDelegate: NIOSSHClientUserAuthenticationDelegate, NIOSSHClientSer
                 continue
             }
         }
-        // nothing stored worked: ask up to three times, like openssh.
+        // nothing stored worked: ask up to three times, like openssh
         guard availableMethods.contains(.password), asked < 3 else {
             let error: SSHError = hop.credentials.isEmpty && asked == 0 ? .noCredentials : .authenticationFailed
             failure.set(error)
-            // failing (not succeeding with nil) is what ends the handshake.
+            // failing (not succeeding with nil) is what ends the handshake
             nextChallengePromise.fail(error)
             return
         }

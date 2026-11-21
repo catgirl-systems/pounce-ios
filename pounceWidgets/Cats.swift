@@ -1,18 +1,12 @@
 import SwiftUI
 
-/// each cat is a stack of flat layers drawn in a fixed unit box and scaled to
-/// fit, feet on the bottom edge. paths are svg-style strings so the same art
-/// can be previewed outside the app.
-
-/// ginger, dimmed towards a moonlit blue as `night` goes to 1.
 struct CatColors {
-    private let night: Double
+    let night: Double
 
-    init(night: Double) { self.night = night }
+    private let moon = RGB(0x5B5A86)
 
     func color(_ paint: CatPose.Paint) -> Color {
-        let moon = RGB(0x5B5A86)
-        return switch paint {
+        switch paint {
         case .fur, .base: RGB(0xEE8A3C).mix(moon, night * 0.4).color
         case .light: light.color
         case .dark: RGB(0xB9561F).mix(RGB(0x3E3558), night * 0.4).color
@@ -25,26 +19,28 @@ struct CatColors {
         }
     }
 
-    private var light: RGB { RGB(0xFBC37F).mix(RGB(0x5B5A86), night * 0.35) }
+    private var light: RGB { RGB(0xFBC37F).mix(moon, night * 0.35) }
 
     var fur: LinearGradient {
         LinearGradient(colors: [light.color, color(.base)], startPoint: .top, endPoint: .bottom)
     }
 }
 
+/// flat layers in a fixed unit box, scaled to fit with the feet on the bottom edge
+/// paths are svg strings so the art can be previewed outside the app
 struct CatPose: Sendable {
     enum Paint: Sendable { case fur, base, light, dark, cream, ear, nose, ink, white, shadow }
 
     struct Layer: Sendable {
-        var path: String
-        var paint: Paint
-        var opacity = 1.0
-        /// set to stroke with round caps instead of fill; the width is in units.
-        var stroke: Double?
-        /// keeps markings inside the silhouette they sit on.
-        var clip: String?
-        /// head layers turn together around the pose's pivot.
-        var head = false
+        let path: String
+        let paint: Paint
+        let opacity: Double
+        /// stroke width in units, with round caps; nil fills the path
+        let stroke: Double?
+        /// keeps markings inside the silhouette they sit on
+        let clip: String?
+        /// head layers turn together around the pose's pivot
+        let head: Bool
 
         init(
             _ path: String, _ paint: Paint, opacity: Double = 1, stroke: Double? = nil, clip: String? = nil,
@@ -60,13 +56,12 @@ struct CatPose: Sendable {
     }
 
     var unit: CGSize
-    /// the neck, in units.
+    /// the neck, in units
     var pivot: CGPoint
-    /// degrees the head is turned at rest.
+    /// degrees the head is turned at rest
     var tilt: Double
     var layers: [Layer]
 
-    /// sitting, seen from behind, watching the sky. `lean` turns the head.
     static let sitting: CatPose = {
         let body = "M 16 122 C 5 96 13 66 30 54 C 40 46 68 46 78 54 C 95 66 103 96 92 122 Q 54 129 16 122 Z"
         let head =
@@ -105,7 +100,6 @@ struct CatPose: Sendable {
             ])
     }()
 
-    /// lying with its chin up, looking at the stars.
     static let lying: CatPose = {
         let body =
             "M 34 88 L 138 88 C 154 86 156 62 140 54 C 122 44 94 43 74 47 C 56 49 43 55 37 63 C 30 71 28 82 34 88 Z"
@@ -162,7 +156,6 @@ struct CatPose: Sendable {
             ])
     }()
 
-    /// curled up asleep, for when the connections are paused.
     static let sleeping: CatPose = {
         let body = "M 14 80 C 3 62 15 35 46 27 C 77 19 118 23 136 43 C 148 57 145 76 134 80 Z"
         let head =
@@ -214,7 +207,7 @@ struct CatPose: Sendable {
 struct Cat: View {
     let pose: CatPose
     let colors: CatColors
-    /// −1 (looking far left) to 1 (far right), on top of the pose's own tilt.
+    /// −1 (looking far left) to 1 (far right), on top of the pose's own tilt
     var lean = 0.0
 
     var body: some View {
@@ -237,10 +230,9 @@ struct Cat: View {
     }
 
     @ViewBuilder private func draw(_ layer: CatPose.Layer) -> some View {
-        let shape = UnitShape(unit: pose.unit, path: layer.path, stroke: layer.stroke)
-        let filled =
+        let filled = UnitShape(unit: pose.unit, path: layer.path, stroke: layer.stroke).fill(
             layer.paint == .fur
-            ? AnyView(shape.fill(colors.fur)) : AnyView(shape.fill(colors.color(layer.paint).opacity(layer.opacity)))
+                ? AnyShapeStyle(colors.fur) : AnyShapeStyle(colors.color(layer.paint).opacity(layer.opacity)))
         if let clip = layer.clip {
             filled.mask(UnitShape(unit: pose.unit, path: clip, stroke: nil))
         } else {
@@ -249,9 +241,8 @@ struct Cat: View {
     }
 }
 
-/// the cat's head as a glyph, for the dynamic island: ears, and eyes cut out.
+/// the eyes are holes, so fill it with `eoFill`
 struct CatFace: Shape {
-    /// closed eyes are thin slits.
     var asleep = false
 
     func path(in rect: CGRect) -> Path {
@@ -286,8 +277,8 @@ private struct UnitShape: Shape {
 }
 
 extension Path {
-    /// the absolute `M L Q C Z` subset of svg path data, separated by spaces.
-    /// anything it can't read ends the path there.
+    /// the absolute `M L Q C Z` subset of svg path data, separated by spaces
+    /// anything it can't read ends the path there
     init(svg: String) {
         self.init()
         var numbers: [Double] = []
