@@ -5,6 +5,14 @@ import SwiftUI
 /// phase. shapes only, so no assets; recomputed from the date on every render.
 struct GardenScene: View {
     let date: Date
+    /// the connections are paused: the cat curls up and sleeps whatever the hour.
+    var asleep = false
+    /// how much of the bottom edge something in front covers; the cat sits
+    /// clear of it.
+    var covered: CGFloat = 0
+
+    /// the dark foreground the activity's text sits on, matched to the hour.
+    static func ground(at date: Date) -> Color { Sky(hour: hour(of: date)).ground.color }
 
     var body: some View {
         let hour = Self.hour(of: date)
@@ -24,6 +32,8 @@ struct GardenScene: View {
                 LinearGradient(colors: [sky.top.color, sky.bottom.color], startPoint: .top, endPoint: .bottom)
 
                 StarField(stars: garden.stars, size: size, horizon: horizon).opacity(sky.night)
+                Clouds(clouds: garden.clouds, size: size, horizon: horizon, tint: sky.bottom)
+                    .opacity(0.9 - sky.night * 0.75)
                 if let streak = garden.shootingStar(at: date), sky.night > 0.8 {
                     ShootingStar()
                         .frame(width: size.width * 0.14, height: size.height * 0.05)
@@ -55,6 +65,11 @@ struct GardenScene: View {
                         .position(point(sun))
                 }
 
+                // far hills, hazed towards the sky behind them.
+                Hill(wave: -0.16)
+                    .fill(sky.backHill.mix(sky.bottom, 0.5).color)
+                    .frame(height: size.height - horizon + size.height * 0.16)
+                    .offset(y: horizon - size.height * 0.16)
                 Hill(wave: 0.06)
                     .fill(sky.backHill.color)
                     .frame(height: size.height - horizon + size.height * 0.06)
@@ -68,26 +83,28 @@ struct GardenScene: View {
                     .offset(y: horizon + size.height * 0.04)
                 Lawn(garden: garden, size: size, lawnTop: horizon + size.height * 0.08, sky: sky)
 
-                let ground = horizon + size.height * 0.22
-                if sky.night > 0.5 {
-                    let height = size.height * 0.44
-                    let unit = LyingCat.unit
-                    LyingCat(colors: CatColors(night: sky.night))
-                        .frame(width: height * unit.width / unit.height, height: height)
-                        .position(x: size.width * Garden.catX, y: ground - height / 2)
-                } else {
-                    let height = size.height * 0.62
-                    let unit = SittingCat.unit
-                    let sunX = 0.06 + 0.88 * (sun?.progress ?? 0.3)
-                    SittingCat(colors: CatColors(night: 0), lean: max(-1, min(1, (sunX - Garden.catX) * 2)))
-                        .frame(width: height * unit.width / unit.height, height: height)
-                        .position(x: size.width * Garden.catX, y: ground - height / 2)
+                Fireflies(spots: garden.fireflies, size: size, lawnTop: horizon).opacity(sky.night)
+
+                let ground = horizon + size.height * 0.22 - covered
+                let pose: CatPose = asleep ? .sleeping : sky.night > 0.5 ? .lying : .sitting
+                let height = size.height * (asleep ? 0.4 : sky.night > 0.5 ? 0.46 : 0.62)
+                let sunX = 0.06 + 0.88 * (sun?.progress ?? 0.3)
+                Cat(
+                    pose: pose, colors: CatColors(night: sky.night),
+                    lean: pose.tilt == 0 && !asleep ? max(-1, min(1, (sunX - Garden.catX) * 2)) : 0
+                )
+                .frame(height: height)
+                .position(x: size.width * Garden.catX, y: ground - height / 2)
+                if asleep {
+                    Snore(color: sky.night > 0.5 ? .white : RGB(0x2E4A7A).color)
+                        .frame(width: size.height * 0.2, height: size.height * 0.26)
+                        .position(x: size.width * Garden.catX - size.height * 0.08, y: ground - height * 1.35)
                 }
             }
         }
         .clipped()
         .accessibilityElement()
-        .accessibilityLabel(Sky.description(hour: hour))
+        .accessibilityLabel(asleep ? "A cat asleep in the garden" : Sky.description(hour: hour))
     }
 
     /// fractional hours since midnight (13.5 is 13:30).
@@ -217,7 +234,7 @@ struct RGB {
     var color: Color { Color(red: r, green: g, blue: b) }
 }
 
-private struct Sky {
+struct Sky {
     var top: RGB
     var bottom: RGB
     var backHill: RGB
@@ -225,6 +242,8 @@ private struct Sky {
     var fence: RGB
     /// 0 in daylight, 1 in full night: stars, moon, the cat lying down.
     var night: Double
+    /// the lawn in deep shade: dark enough for white text at any hour.
+    var ground: RGB { lawn.mix(RGB(0x0D2117), 0.62) }
 
     /// key moments of the day: hour, sky top, sky bottom, back hill, lawn.
     private static let keys: [(Double, UInt32, UInt32, UInt32, UInt32)] = [
@@ -298,6 +317,8 @@ struct Garden {
     var flowers: [Flower] = []
     var tufts: [(x: Double, depth: Double)] = []
     var stars: [Star] = []
+    var clouds: [(x: Double, y: Double, size: Double)] = []
+    var fireflies: [(x: Double, y: Double)] = []
     private let seed: UInt64
 
     init(date: Date) {
@@ -328,6 +349,17 @@ struct Garden {
                 Star(
                     x: .random(in: 0.01...0.99, using: &random), y: .random(in: 0.04...0.85, using: &random),
                     size: .random(in: 0.6...1.3, using: &random), sparkle: i < 3))
+        }
+        for i in 0..<Int.random(in: 2...3, using: &random) {
+            // spread across thirds so they don't pile up.
+            clouds.append(
+                (
+                    (Double(i) + .random(in: 0.25...0.75, using: &random)) / 3 + 0.1,
+                    .random(in: 0.12...0.5, using: &random), .random(in: 0.75...1.25, using: &random)
+                ))
+        }
+        for _ in 0..<Int.random(in: 4...6, using: &random) {
+            fireflies.append((.random(in: 0.34...0.82, using: &random), .random(in: -0.5...0.7, using: &random)))
         }
     }
 
@@ -360,7 +392,7 @@ struct SeededRandom: RandomNumberGenerator {
 
 // MARK: - garden
 
-private struct Hill: Shape {
+struct Hill: Shape {
     var wave: Double
 
     func path(in rect: CGRect) -> Path {
@@ -452,6 +484,64 @@ private struct Tuft: Shape {
             path.closeSubpath()
         }
         return path
+    }
+}
+
+/// three overlapping puffs each, warmed by the sky near the horizon.
+private struct Clouds: View {
+    let clouds: [(x: Double, y: Double, size: Double)]
+    let size: CGSize
+    let horizon: CGFloat
+    let tint: RGB
+
+    var body: some View {
+        let color = RGB(0xFFFFFF).mix(tint, 0.22).color
+        ForEach(Array(clouds.enumerated()), id: \.offset) { _, cloud in
+            let h = size.height * 0.11 * cloud.size
+            ZStack(alignment: .bottom) {
+                Capsule().frame(width: h * 3.4, height: h * 0.8)
+                Circle().frame(width: h * 1.25, height: h * 1.25).offset(x: -h * 0.55, y: -h * 0.2)
+                Circle().frame(width: h * 0.95, height: h * 0.95).offset(x: h * 0.5, y: -h * 0.2)
+            }
+            .foregroundStyle(color)
+            .position(x: size.width * cloud.x, y: horizon * cloud.y)
+        }
+    }
+}
+
+private struct Fireflies: View {
+    let spots: [(x: Double, y: Double)]
+    let size: CGSize
+    let lawnTop: CGFloat
+
+    var body: some View {
+        let glow = Color(red: 0.86, green: 1, blue: 0.45)
+        let d = size.height * 0.035
+        ForEach(Array(spots.enumerated()), id: \.offset) { _, spot in
+            Circle().fill(glow)
+                .frame(width: d, height: d)
+                .shadow(color: glow, radius: d)
+                .position(x: size.width * spot.x, y: lawnTop + (size.height - lawnTop) * 0.5 * spot.y)
+        }
+    }
+}
+
+/// rising "z"s over the sleeping cat.
+private struct Snore: View {
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geometry in
+            let h = geometry.size.height
+            ForEach(0..<3, id: \.self) { i in
+                let t = Double(i) / 2
+                Text("z")
+                    .font(.system(size: h * (0.34 + 0.2 * t), weight: .heavy, design: .rounded))
+                    .foregroundStyle(color.opacity(0.5 + 0.4 * t))
+                    .position(x: geometry.size.width * (0.75 - 0.3 * t), y: h * (0.85 - 0.36 * t))
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
